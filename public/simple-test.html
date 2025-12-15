@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Face-API Test</title>
+</head>
+<body>
+    <h1>Simple Face-API Test</h1>
+    <div id="status">Loading face-api.js...</div>
+    
+    <script src="/face-api.js"></script>
+    
+    <script>
+        // Check if faceapi is available
+        window.addEventListener('DOMContentLoaded', function() {
+            const statusDiv = document.getElementById('status');
+            
+            if (window.faceapi) {
+                statusDiv.innerHTML = '<p style="color: green;">✅ face-api.js loaded successfully!</p>';
+                statusDiv.innerHTML += '<p>faceapi object is available in window</p>';
+                console.log('faceapi object:', window.faceapi);
+            } else {
+                statusDiv.innerHTML = '<p style="color: red;">❌ face-api.js failed to load</p>';
+                console.error('faceapi object is not available');
+            }
+        });
+    </script>
+</body>
+</html>

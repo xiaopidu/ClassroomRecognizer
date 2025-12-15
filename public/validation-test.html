@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Validation Test</title>
+    <script src="/face-api.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #1e293b;
+            color: #f8fafc;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            background-color: #334155;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #2563eb;
+        }
+        button:disabled {
+            background-color: #64748b;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #475569;
+        }
+        .success {
+            background-color: #16a34a;
+        }
+        .error {
+            background-color: #dc2626;
+        }
+        canvas {
+            border: 1px solid #64748b;
+            margin-top: 10px;
+        }
+        .threshold-control {
+            margin: 10px 0;
+        }
+        .threshold-control label {
+            display: inline-block;
+            width: 200px;
+        }
+        .threshold-control input {
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Validation Test</h1>
+        
+        <div class="test-section">
+            <h2>1. Model Loading Test</h2>
+            <button id="loadModelBtn">Load Models</button>
+            <div id="modelStatus" class="result">Not started</div>
+        </div>
+        
+        <div class="test-section">
+            <h2>2. Parameter Testing</h2>
+            <div class="threshold-control">
+                <label for="thresholdSlider">Similarity Threshold:</label>
+                <input type="range" id="thresholdSlider" min="0.4" max="0.99" step="0.01" value="0.92">
+                <span id="thresholdValue">0.92</span>
+            </div>
+            <div class="threshold-control">
+                <label for="confidenceSlider">Min Confidence:</label>
+                <input type="range" id="confidenceSlider" min="0.05" max="0.9" step="0.05" value="0.2">
+                <span id="confidenceValue">0.20</span>
+            </div>
+            <div class="threshold-control">
+                <label for="networkSizeSlider">Network Size:</label>
+                <input type="range" id="networkSizeSlider" min="224" max="800" step="32" value="608">
+                <span id="networkSizeValue">608</span>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>3. Face Detection Test</h2>
+            <p>Upload an image with a face to test detection:</p>
+            <input type="file" id="imageUpload" accept="image/*">
+            <div id="detectionStatus" class="result">Waiting for image upload</div>
+            <canvas id="canvas" width="600" height="400"></canvas>
+        </div>
+        
+        <div class="test-section">
+            <h2>4. Recognition Test</h2>
+            <p>First register a student, then test recognition:</p>
+            <div>
+                <input type="text" id="studentName" placeholder="Enter student name">
+                <button id="registerBtn" disabled>Register Student</button>
+            </div>
+            <button id="recognizeBtn" disabled>Recognize Face</button>
+            <div id="recognitionStatus" class="result">Waiting for registration</div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentImage = null;
+        let detection = null;
+        let studentDescriptors = [];
+        let studentName = '';
+        let params = {
+            similarityThreshold: 0.92,
+            minConfidence: 0.2,
+            networkSize: 608
+        };
+        
+        // DOM Elements
+        const modelStatus = document.getElementById('modelStatus');
+        const detectionStatus = document.getElementById('detectionStatus');
+        const recognitionStatus = document.getElementById('recognitionStatus');
+        const loadModelBtn = document.getElementById('loadModelBtn');
+        const imageUpload = document.getElementById('imageUpload');
+        const registerBtn = document.getElementById('registerBtn');
+        const recognizeBtn = document.getElementById('recognizeBtn');
+        const studentNameInput = document.getElementById('studentName');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Threshold controls
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        const thresholdValue = document.getElementById('thresholdValue');
+        const confidenceSlider = document.getElementById('confidenceSlider');
+        const confidenceValue = document.getElementById('confidenceValue');
+        const networkSizeSlider = document.getElementById('networkSizeSlider');
+        const networkSizeValue = document.getElementById('networkSizeValue');
+        
+        // Update parameter values when sliders change
+        thresholdSlider.addEventListener('input', () => {
+            params.similarityThreshold = parseFloat(thresholdSlider.value);
+            thresholdValue.textContent = params.similarityThreshold.toFixed(2);
+        });
+        
+        confidenceSlider.addEventListener('input', () => {
+            params.minConfidence = parseFloat(confidenceSlider.value);
+            confidenceValue.textContent = params.minConfidence.toFixed(2);
+        });
+        
+        networkSizeSlider.addEventListener('input', () => {
+            params.networkSize = parseInt(networkSizeSlider.value);
+            networkSizeValue.textContent = params.networkSize;
+        });
+        
+        // Load models
+        async function loadModels() {
+            try {
+                modelStatus.textContent = 'Loading models...';
+                modelStatus.className = 'result';
+                
+                await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
+                await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+                await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+                
+                modelStatus.textContent = '✅ Models loaded successfully!';
+                modelStatus.className = 'result success';
+                loadModelBtn.disabled = true;
+            } catch (error) {
+                modelStatus.textContent = `❌ Error loading models: ${error.message}`;
+                modelStatus.className = 'result error';
+                console.error(error);
+            }
+        }
+        
+        // Handle image upload
+        imageUpload.addEventListener('change', async (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const file = e.target.files[0];
+                const imageUrl = URL.createObjectURL(file);
+                
+                // Load image
+                currentImage = new Image();
+                currentImage.onload = async () => {
+                    try {
+                        detectionStatus.textContent = 'Detecting face...';
+                        
+                        // Detect face with parameters
+                        const options = new faceapi.SsdMobilenetv1Options({
+                            minConfidence: params.minConfidence,
+                            inputSize: params.networkSize
+                        });
+                        
+                        detection = await faceapi.detectSingleFace(currentImage, options)
+                            .withFaceLandmarks()
+                            .withFaceDescriptor();
+                            
+                        if (detection) {
+                            detectionStatus.textContent = '✅ Face detected successfully!';
+                            detectionStatus.className = 'result success';
+                            
+                            // Draw on canvas
+                            canvas.width = currentImage.width;
+                            canvas.height = currentImage.height;
+                            ctx.drawImage(currentImage, 0, 0);
+                            
+                            // Draw bounding box
+                            const box = detection.detection.box;
+                            ctx.strokeStyle = '#22c55e';
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(box.x, box.y, box.width, box.height);
+                            
+                            // Enable buttons
+                            registerBtn.disabled = false;
+                            recognizeBtn.disabled = studentDescriptors.length === 0;
+                        } else {
+                            detectionStatus.textContent = '❌ No face detected in image';
+                            detectionStatus.className = 'result error';
+                            registerBtn.disabled = true;
+                            recognizeBtn.disabled = true;
+                        }
+                    } catch (error) {
+                        detectionStatus.textContent = `❌ Error detecting face: ${error.message}`;
+                        detectionStatus.className = 'result error';
+                        console.error(error);
+                        registerBtn.disabled = true;
+                        recognizeBtn.disabled = true;
+                    }
+                };
+                currentImage.src = imageUrl;
+            }
+        });
+        
+        // Register student
+        registerBtn.addEventListener('click', async () => {
+            if (!detection) return;
+            
+            try {
+                studentName = studentNameInput.value.trim();
+                if (!studentName) {
+                    alert('Please enter a student name');
+                    return;
+                }
+                
+                // Store descriptor
+                studentDescriptors = [detection.descriptor];
+                
+                recognitionStatus.textContent = `✅ Student "${studentName}" registered successfully!`;
+                recognitionStatus.className = 'result success';
+                recognizeBtn.disabled = false;
+            } catch (error) {
+                recognitionStatus.textContent = `❌ Error registering student: ${error.message}`;
+                recognitionStatus.className = 'result error';
+                console.error(error);
+            }
+        });
+        
+        // Recognize face
+        recognizeBtn.addEventListener('click', async () => {
+            if (!detection || studentDescriptors.length === 0) return;
+            
+            try {
+                recognitionStatus.textContent = 'Recognizing face...';
+                
+                // Compute similarity (cosine similarity)
+                const queryDescriptor = detection.descriptor;
+                const studentDescriptor = studentDescriptors[0];
+                
+                // Since face-api descriptors are normalized, dot product equals cosine similarity
+                let dotProduct = 0;
+                for (let i = 0; i < queryDescriptor.length; i++) {
+                    dotProduct += queryDescriptor[i] * studentDescriptor[i];
+                }
+                
+                const similarity = dotProduct;
+                const percentage = (similarity * 100).toFixed(2);
+                
+                if (similarity >= params.similarityThreshold) {
+                    recognitionStatus.textContent = `✅ Match found! Student: ${studentName}, Similarity: ${percentage}%`;
+                    recognitionStatus.className = 'result success';
+                } else if (similarity >= params.similarityThreshold * 0.8) {
+                    recognitionStatus.textContent = `⚠️ Low confidence match. Student: ${studentName}, Similarity: ${percentage}%`;
+                    recognitionStatus.className = 'result';
+                } else {
+                    recognitionStatus.textContent = `❌ No match found. Similarity: ${percentage}%`;
+                    recognitionStatus.className = 'result error';
+                }
+                
+                // Show the similarity value for debugging
+                recognitionStatus.textContent += ` (Threshold: ${(params.similarityThreshold * 100).toFixed(0)}%)`;
+            } catch (error) {
+                recognitionStatus.textContent = `❌ Error recognizing face: ${error.message}`;
+                recognitionStatus.className = 'result error';
+                console.error(error);
+            }
+        });
+        
+        // Initialize
+        loadModelBtn.addEventListener('click', loadModels);
+    </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Model Load Test</title>
+    <script src="/face-api.js"></script>
+</head>
+<body>
+    <h1>Model Loading Test</h1>
+    <div id="status">Loading models...</div>
+    
+    <script>
+        async function testModelLoading() {
+            const statusDiv = document.getElementById('status');
+            
+            try {
+                statusDiv.innerHTML = 'Loading SSD MobileNet V1 model...';
+                await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
+                console.log('SSD MobileNet V1 model loaded');
+                
+                statusDiv.innerHTML = 'Loading Face Landmark 68 model...';
+                await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+                console.log('Face Landmark 68 model loaded');
+                
+                statusDiv.innerHTML = 'Loading Face Recognition model...';
+                await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+                console.log('Face Recognition model loaded');
+                
+                statusDiv.innerHTML = '<p style="color: green;">✅ All models loaded successfully!</p>';
+                statusDiv.innerHTML += '<p>Models are ready for face detection and recognition.</p>';
+            } catch (error) {
+                console.error('Error loading models:', error);
+                statusDiv.innerHTML = '<p style="color: red;">❌ Error loading models: ' + error.message + '</p>';
+                statusDiv.innerHTML += '<p>Please check the console for more details.</p>';
+            }
+        }
+        
+        // Run test when page loads
+        window.addEventListener('DOMContentLoaded', testModelLoading);
+    </script>
+</body>
+</html>

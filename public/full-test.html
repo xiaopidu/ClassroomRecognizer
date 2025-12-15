@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Full System Test</title>
+    <script src="/face-api.js"></script>
+</head>
+<body>
+    <h1>Full System Test</h1>
+    <div id="status">Initializing...</div>
+    
+    <script>
+        async function runFullTest() {
+            const statusDiv = document.getElementById('status');
+            
+            try {
+                statusDiv.innerHTML = '<p>1. Checking if face-api.js is loaded...</p>';
+                if (!window.faceapi) {
+                    throw new Error('face-api.js is not loaded');
+                }
+                statusDiv.innerHTML += '<p style="color: green;">✅ face-api.js loaded successfully</p>';
+                
+                statusDiv.innerHTML += '<p>2. Loading models from local path...</p>';
+                await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
+                statusDiv.innerHTML += '<p style="color: green;">✅ SSD MobileNet V1 model loaded</p>';
+                
+                await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+                statusDiv.innerHTML += '<p style="color: green;">✅ Face Landmark 68 model loaded</p>';
+                
+                await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+                statusDiv.innerHTML += '<p style="color: green;">✅ Face Recognition model loaded</p>';
+                
+                statusDiv.innerHTML += '<p>3. Testing model functionality...</p>';
+                
+                // Test if we can create a dummy tensor (basic functionality)
+                const dummyTensor = faceapi.tf.tensor([1, 2, 3, 4]);
+                if (dummyTensor) {
+                    statusDiv.innerHTML += '<p style="color: green;">✅ TensorFlow.js is working</p>';
+                    dummyTensor.dispose();
+                } else {
+                    throw new Error('TensorFlow.js is not working properly');
+                }
+                
+                statusDiv.innerHTML += '<p style="color: green;font-weight: bold;">🎉 All tests passed! The system is ready for face recognition.</p>';
+                statusDiv.innerHTML += '<p>You can now use the main application for face detection and recognition.</p>';
+                
+            } catch (error) {
+                console.error('Test failed:', error);
+                statusDiv.innerHTML += `<p style="color: red;">❌ Test failed: ${error.message}</p>`;
+                statusDiv.innerHTML += '<p>Please check the browser console for more details.</p>';
+            }
+        }
+        
+        // Run test when page loads
+        window.addEventListener('DOMContentLoaded', runFullTest);
+    </script>
+</body>
+</html>

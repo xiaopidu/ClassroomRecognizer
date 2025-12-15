@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { ImageQualityReport, BehaviorReport } from "../types";
+import { ImageQualityReport, BehaviorReport, SingleStudentBehaviorReport } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -165,6 +165,64 @@ export async function analyzeClassroomBehavior(base64Image: string): Promise<Beh
 
   } catch (error) {
     console.error("Behavior Analysis Error:", error);
+    throw error;
+  }
+}
+
+export async function analyzeStudentBehavior(base64Image: string): Promise<SingleStudentBehaviorReport> {
+  const model = "gemini-2.5-flash";
+  const cleanBase64 = base64Image.split(',')[1] || base64Image;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: cleanBase64
+            }
+          },
+          {
+            text: `Role: Behavioral Psychologist.
+            Task: Analyze the specific student in this image crop. The image focuses on one student's upper body.
+            
+            Determine:
+            1. Focus Score (0-100): How attentive are they to the class?
+            2. Action: What exactly are they doing? (e.g., Taking notes, Raising hand, Using phone, Sleeping, Daydreaming)
+            3. Posture: Body language assessment.
+            4. Expression: Facial expression assessment.
+            
+            Return JSON in Simplified Chinese.`
+          }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            timestamp: { type: Type.STRING },
+            focusScore: { type: Type.INTEGER, description: "0-100" },
+            isDistracted: { type: Type.BOOLEAN },
+            action: { type: Type.STRING, description: "Specific action in Chinese" },
+            posture: { type: Type.STRING, description: "Body posture description in Chinese" },
+            expression: { type: Type.STRING, description: "Facial expression in Chinese" },
+            summary: { type: Type.STRING, description: "Brief psychological analysis in Chinese" }
+          },
+          required: ["focusScore", "isDistracted", "action", "posture", "expression", "summary"]
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response from Gemini");
+    
+    return JSON.parse(text) as SingleStudentBehaviorReport;
+
+  } catch (error) {
+    console.error("Student Analysis Error:", error);
     throw error;
   }
 }

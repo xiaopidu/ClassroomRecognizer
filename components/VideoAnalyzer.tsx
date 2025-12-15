@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { RecognitionParams, Student, BehaviorReport } from '../types';
+import { RecognitionParams, Student, BehaviorReport, SingleStudentBehaviorReport } from '../types';
 import { FaceRecognitionService } from '../services/faceRecognitionService';
-import { analyzeClassroomBehavior } from '../services/geminiService';
-import { Play, Pause, Upload, Video as VideoIcon, Loader, Timer, Gauge, Camera, Download, XCircle, MousePointer2, Eraser, Hourglass, CheckCheck, BrainCircuit, Activity, X } from 'lucide-react';
+import { analyzeClassroomBehavior, analyzeStudentBehavior } from '../services/geminiService';
+import { Play, Pause, Upload, Video as VideoIcon, Loader, Timer, Gauge, Camera, Download, XCircle, MousePointer2, Eraser, Hourglass, CheckCheck, BrainCircuit, Activity, X, UserSearch, ScanEye } from 'lucide-react';
 
 interface VideoAnalyzerProps {
   students: Student[];
@@ -16,6 +16,8 @@ interface Track {
   totalFrames: number;
   sumBox: { x: number, y: number, w: number, h: number };
 }
+
+type AnalysisMode = 'none' | 'classroom' | 'student';
 
 const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -48,6 +50,10 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
   // Behavior Analysis Mode
   const [isAnalyzingBehavior, setIsAnalyzingBehavior] = useState(false);
   const [behaviorReport, setBehaviorReport] = useState<BehaviorReport | null>(null);
+  
+  // Single Student Analysis
+  const [selectStudentMode, setSelectStudentMode] = useState(false);
+  const [singleStudentReport, setSingleStudentReport] = useState<SingleStudentBehaviorReport | null>(null);
 
   // Stats
   const [trackedCount, setTrackedCount] = useState(0);
@@ -95,6 +101,8 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
       setStableResults(null);
       setManualDetections([]);
       setBehaviorReport(null);
+      setSingleStudentReport(null);
+      setSelectStudentMode(false);
       setTrackedCount(0);
       setCurrentTime(0);
       setDuration(0);
@@ -165,8 +173,8 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
           let maxIoU = 0;
 
           tracks.forEach((track, idx) => {
-              // Using explicit number type to avoid TS errors
-              const iou: number = service.getIoU(det.detection.box, track.lastBox);
+              // Cast to number to resolve potential type inference issues from unknown
+              const iou = service.getIoU(det.detection.box, track.lastBox) as number;
               if (iou > 0.4 && iou > maxIoU) { 
                   maxIoU = iou;
                   bestTrackIdx = idx;
@@ -274,16 +282,19 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
       setIsSnapshotMode(false);
       setIsAccumulating(true);
       setBehaviorReport(null); // Clear previous reports
+      setSingleStudentReport(null);
       
       videoRef.current.play();
       setIsPlaying(true);
       requestRef.current = requestAnimationFrame(processVideo);
   };
 
-  const handleBehaviorAnalysis = async () => {
+  const handleClassroomBehaviorAnalysis = async () => {
       if (!videoRef.current || !videoSrc) return;
       
       setIsAnalyzingBehavior(true);
+      setBehaviorReport(null);
+      setSingleStudentReport(null);
       // Pause video for analysis
       videoRef.current.pause();
       setIsPlaying(false);
@@ -305,7 +316,81 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
 
       } catch (err) {
           console.error(err);
-          alert("行为分析失败，请稍后重试。");
+          alert("全班行为分析失败，请稍后重试。");
+      } finally {
+          setIsAnalyzingBehavior(false);
+      }
+  };
+
+  const toggleStudentSelectionMode = () => {
+      if (isAccumulating) return;
+      
+      setSelectStudentMode(!selectStudentMode);
+      setIsManualMode(false); // Exclusive with manual assist
+      
+      // Pause if entering mode
+      if (!selectStudentMode && isPlaying && videoRef.current) {
+          videoRef.current.pause();
+          setIsPlaying(false);
+          if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      }
+  };
+
+  const handleSingleStudentAnalysis = async (x: number, y: number) => {
+      if (!videoRef.current) return;
+      
+      setIsAnalyzingBehavior(true);
+      setSingleStudentReport(null);
+      setBehaviorReport(null);
+
+      try {
+          // 1. First, verify a face is there or just use crop logic
+          // Use FaceAPI to get a bounding box if possible, otherwise use a generic crop
+          const service = FaceRecognitionService.getInstance();
+          
+          // Try to detect specific face to get accurate bounds
+          let box = { x: x - 100, y: y - 100, width: 200, height: 200 }; // Default fallback
+          
+          const detection = await service.detectSpecificFaceAtCoordinate(videoRef.current, x, y, params);
+          if (detection) {
+              const dBox = detection.detection.box;
+              // Expand box to include torso (Upper body)
+              // Center X, Move Y down slightly to capture body, Increase Height
+              const cx = dBox.x + dBox.width / 2;
+              const cy = dBox.y + dBox.height / 2;
+              
+              const newWidth = dBox.width * 3.5; // Wider to capture hands/desk
+              const newHeight = dBox.height * 4.5; // Taller to capture posture
+              
+              box = {
+                  x: cx - newWidth / 2,
+                  y: dBox.y - (dBox.height * 0.5), // Start slightly above head
+                  width: newWidth,
+                  height: newHeight
+              };
+          } else {
+             // If no face detected, assume click centered on person
+             box = { x: x - 150, y: y - 150, width: 300, height: 400 };
+          }
+
+          // 2. Crop
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = box.width;
+          tempCanvas.height = box.height;
+          const ctx = tempCanvas.getContext('2d');
+          if (!ctx) throw new Error("Canvas Error");
+
+          ctx.drawImage(videoRef.current, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
+          const base64Data = tempCanvas.toDataURL('image/jpeg', 0.9);
+
+          // 3. Analyze
+          const report = await analyzeStudentBehavior(base64Data);
+          setSingleStudentReport(report);
+          setSelectStudentMode(false); // Exit mode on success
+
+      } catch (err) {
+          console.error(err);
+          alert("单人分析失败，请确保点击了清晰的学生目标。");
       } finally {
           setIsAnalyzingBehavior(false);
       }
@@ -365,7 +450,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
   };
 
   const handleVideoClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isManualMode || !videoRef.current) return;
+    if (!videoRef.current) return;
     
     const rect = e.currentTarget.getBoundingClientRect();
     const scaleX = videoRef.current.videoWidth / rect.width;
@@ -374,24 +459,33 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
 
-    setIsManualProcessing(true);
-    try {
-       const result = await FaceRecognitionService.getInstance().detectSpecificFaceAtCoordinate(
-         videoRef.current,
-         x,
-         y,
-         params
-       );
+    // Mode 1: Student Analysis Selection
+    if (selectStudentMode) {
+        handleSingleStudentAnalysis(x, y);
+        return;
+    }
 
-       if (result) {
-         setManualDetections(prev => [...prev, result]);
-       } else {
-         console.log("No face found at clicked location");
-       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsManualProcessing(false);
+    // Mode 2: Manual Recognition Assist
+    if (isManualMode) {
+        setIsManualProcessing(true);
+        try {
+           const result = await FaceRecognitionService.getInstance().detectSpecificFaceAtCoordinate(
+             videoRef.current,
+             x,
+             y,
+             params
+           );
+
+           if (result) {
+             setManualDetections(prev => [...prev, result]);
+           } else {
+             console.log("No face found at clicked location");
+           }
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setIsManualProcessing(false);
+        }
     }
   };
 
@@ -443,14 +537,14 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
 
   return (
     <div className="flex flex-col h-full gap-4 relative">
-      {/* Behavior Report Overlay Panel */}
+      {/* Classroom Behavior Report Overlay */}
       {behaviorReport && (
          <div className="absolute top-4 right-4 z-50 w-80 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-right-10 duration-300">
              <div className="bg-gradient-to-r from-blue-900/50 to-slate-900/50 p-4 border-b border-slate-700 flex justify-between items-start">
                  <div>
                     <h3 className="text-white font-bold flex items-center gap-2">
                         <BrainCircuit className="w-5 h-5 text-blue-400" />
-                        课堂行为分析
+                        全班行为分析
                     </h3>
                     <p className="text-[10px] text-slate-400 mt-1">分析时间: {new Date().toLocaleTimeString()}</p>
                  </div>
@@ -462,7 +556,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
              <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
                  {/* Score */}
                  <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-lg">
-                     <span className="text-sm text-slate-300">专注度评分</span>
+                     <span className="text-sm text-slate-300">班级专注度</span>
                      <div className="flex items-center gap-2">
                          <span className={`text-2xl font-bold ${
                              behaviorReport.attentionScore >= 80 ? 'text-green-400' :
@@ -474,9 +568,8 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
                      </div>
                  </div>
 
-                 {/* Behavior List */}
                  <div className="space-y-2">
-                     <h4 className="text-xs font-semibold text-slate-400 uppercase">检测到的行为</h4>
+                     <h4 className="text-xs font-semibold text-slate-400 uppercase">行为统计</h4>
                      {behaviorReport.behaviors.map((item, idx) => (
                          <div key={idx} className="flex items-center justify-between text-sm border-b border-slate-800/50 pb-2 last:border-0">
                              <div>
@@ -488,16 +581,68 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
                              </span>
                          </div>
                      ))}
-                     {behaviorReport.behaviors.length === 0 && (
-                         <p className="text-xs text-slate-500 italic">未检测到明显特定行为</p>
-                     )}
                  </div>
 
-                 {/* Summary */}
                  <div className="bg-slate-800/30 p-3 rounded-lg border border-slate-700/30">
                      <h4 className="text-xs font-semibold text-blue-400 mb-1">AI 总结</h4>
                      <p className="text-xs text-slate-300 leading-relaxed">
                          {behaviorReport.summary}
+                     </p>
+                 </div>
+             </div>
+         </div>
+      )}
+
+      {/* Single Student Report Overlay */}
+      {singleStudentReport && (
+         <div className="absolute top-4 right-4 z-50 w-72 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-right-10 duration-300">
+             <div className="bg-gradient-to-r from-purple-900/50 to-slate-900/50 p-4 border-b border-slate-700 flex justify-between items-start">
+                 <div>
+                    <h3 className="text-white font-bold flex items-center gap-2">
+                        <UserSearch className="w-5 h-5 text-purple-400" />
+                        单人行为分析
+                    </h3>
+                 </div>
+                 <button onClick={() => setSingleStudentReport(null)} className="text-slate-400 hover:text-white">
+                     <X className="w-5 h-5" />
+                 </button>
+             </div>
+             
+             <div className="p-4 space-y-4">
+                 {/* Focus Score */}
+                 <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-lg">
+                     <span className="text-sm text-slate-300">个人专注度</span>
+                     <div className="flex items-center gap-2">
+                         <span className={`text-2xl font-bold ${
+                             singleStudentReport.focusScore >= 80 ? 'text-green-400' :
+                             singleStudentReport.focusScore >= 60 ? 'text-yellow-400' : 'text-red-400'
+                         }`}>
+                             {singleStudentReport.focusScore}
+                         </span>
+                     </div>
+                 </div>
+                 
+                 <div className="grid grid-cols-1 gap-3">
+                    <div className="bg-slate-800/30 p-2 rounded border border-slate-700/30">
+                        <span className="text-[10px] text-slate-400 block mb-1">当前动作</span>
+                        <span className="text-sm text-white font-medium">{singleStudentReport.action}</span>
+                    </div>
+                    <div className="bg-slate-800/30 p-2 rounded border border-slate-700/30">
+                        <span className="text-[10px] text-slate-400 block mb-1">姿态/表情</span>
+                        <span className="text-sm text-white">{singleStudentReport.posture} · {singleStudentReport.expression}</span>
+                    </div>
+                 </div>
+
+                 {singleStudentReport.isDistracted && (
+                     <div className="bg-red-900/20 text-red-300 p-2 rounded text-xs border border-red-900/30 flex items-center gap-2">
+                         <XCircle className="w-4 h-4" /> 监测到注意力不集中
+                     </div>
+                 )}
+
+                 <div className="bg-slate-800/30 p-3 rounded-lg border border-slate-700/30">
+                     <h4 className="text-xs font-semibold text-purple-400 mb-1">AI 评估</h4>
+                     <p className="text-xs text-slate-300 leading-relaxed">
+                         {singleStudentReport.summary}
                      </p>
                  </div>
              </div>
@@ -510,6 +655,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
           isSnapshotMode ? 'border-amber-500' : 
           isAccumulating ? 'border-purple-500' :
           isAnalyzingBehavior ? 'border-blue-500' :
+          selectStudentMode ? 'border-purple-500 cursor-crosshair' :
           isManualMode ? 'border-cyan-500 cursor-crosshair' : 'border-slate-800'
         }`}
         onClick={handleVideoClick}
@@ -541,8 +687,8 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
                  <div className="bg-blue-600/20 p-6 rounded-full mb-4 animate-pulse">
                      <BrainCircuit className="w-12 h-12 text-blue-400" />
                  </div>
-                 <h3 className="text-xl font-bold text-white mb-2">AI 正在观察课堂...</h3>
-                 <p className="text-slate-300 text-sm">正在分析学生行为：看黑板、看手机、交谈等</p>
+                 <h3 className="text-xl font-bold text-white mb-2">AI 正在观察...</h3>
+                 <p className="text-slate-300 text-sm">正在分析视觉信息与行为特征</p>
             </div>
         )}
 
@@ -568,6 +714,15 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
                 </div>
                 <div className="text-[10px] text-purple-300 mt-1">{accumulationProgress} / 100 帧</div>
             </div>
+        )}
+
+        {selectStudentMode && (
+          <div className="absolute top-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
+             <div className="bg-purple-600/90 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center shadow-lg animate-bounce">
+                <ScanEye className="w-4 h-4 mr-2" />
+                请点击画面中的任意学生进行分析
+             </div>
+          </div>
         )}
 
         {isSnapshotMode && (
@@ -662,26 +817,42 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
                   {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current pl-0.5" />}
                 </button>
                 
-                {/* AI Behavior Analysis Button */}
-                <button
-                  onClick={handleBehaviorAnalysis}
-                  disabled={!videoSrc || isAnalyzingBehavior}
-                  className={`px-4 py-2 rounded-full text-white shadow-lg transition-colors flex items-center gap-2 ${
-                      isAnalyzingBehavior 
-                      ? 'bg-blue-800 cursor-not-allowed' 
-                      : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'
-                  }`}
-                  title="使用 AI 分析当前画面中的学生行为（玩手机、睡觉、听课等）"
-                >
-                   {isAnalyzingBehavior ? <Loader className="animate-spin w-4 h-4" /> : <BrainCircuit className="w-4 h-4" />}
-                  <span className="text-xs font-semibold">AI 行为分析</span>
-                </button>
+                {/* AI Behavior Analysis Buttons Group */}
+                <div className="flex bg-slate-900 rounded-full p-1 border border-slate-700 ml-2">
+                    <button
+                    onClick={handleClassroomBehaviorAnalysis}
+                    disabled={!videoSrc || isAnalyzingBehavior || selectStudentMode}
+                    className={`px-4 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                        isAnalyzingBehavior && !selectStudentMode
+                        ? 'bg-blue-800 text-white cursor-not-allowed'
+                        : 'hover:bg-blue-600 hover:text-white text-slate-300'
+                    }`}
+                    title="分析全班情况"
+                    >
+                    <BrainCircuit className="w-3.5 h-3.5" />
+                    全班分析
+                    </button>
+                    <div className="w-px bg-slate-700 my-1 mx-1"></div>
+                    <button
+                    onClick={toggleStudentSelectionMode}
+                    disabled={!videoSrc || isAnalyzingBehavior}
+                    className={`px-4 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1 transition-all ${
+                        selectStudentMode 
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'hover:bg-purple-600 hover:text-white text-slate-300'
+                    }`}
+                    title="点击画面选择特定学生进行分析"
+                    >
+                    <UserSearch className="w-3.5 h-3.5" />
+                    单人行为
+                    </button>
+                </div>
 
                 {/* 100-Frame Analysis Button */}
                 <button
                   onClick={startAccumulation}
                   disabled={!videoSrc || isLoadingModels || isAccumulating || isAnalyzingBehavior}
-                  className={`px-4 py-2 rounded-full text-white shadow-lg transition-colors flex items-center gap-2 ${
+                  className={`ml-2 px-4 py-2 rounded-full text-white shadow-lg transition-colors flex items-center gap-2 ${
                       isAccumulating 
                       ? 'bg-purple-800 cursor-not-allowed' 
                       : 'bg-purple-600 hover:bg-purple-500'
@@ -695,7 +866,10 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params }) => {
                 {/* Manual Assist Toggle */}
                  <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-700 ml-2">
                     <button
-                        onClick={() => setIsManualMode(!isManualMode)}
+                        onClick={() => {
+                            setIsManualMode(!isManualMode);
+                            setSelectStudentMode(false);
+                        }}
                         disabled={isAccumulating || isAnalyzingBehavior}
                         className={`p-2 rounded-md transition-all flex items-center gap-2 ${
                             isManualMode ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-cyan-400'

@@ -35,6 +35,16 @@ export interface BehaviorReport {
   summary: string; // Overall atmosphere description
 }
 
+export interface SingleStudentBehaviorReport {
+  timestamp: string;
+  focusScore: number; // 0-100
+  isDistracted: boolean;
+  action: string; // e.g., "Writing notes", "Sleeping"
+  posture: string; // e.g., "Upright", "Leaning back"
+  expression: string; // e.g., "Focused", "Bored"
+  summary: string;
+}
+
 // Augment window to include face-api types since we load it via script
 declare global {
   interface Window {

@@ -102,7 +102,7 @@ export async function enhanceImage(base64Image: string): Promise<string | null> 
   }
 }
 
-export async function analyzeClassroomBehavior(base64Image: string): Promise<BehaviorReport> {
+export async function analyzeClassroomBehavior(base64Image: string, timeWindowInfo: string = ""): Promise<BehaviorReport> {
   const model = "gemini-2.5-flash";
   const cleanBase64 = base64Image.split(',')[1] || base64Image;
 
@@ -128,6 +128,7 @@ export async function analyzeClassroomBehavior(base64Image: string): Promise<Beh
             - Drinking Water/Eating
             - Chatting/Turning Head to Neighbor
             - Sleeping/Head Down
+            ${timeWindowInfo}
             
             Return a JSON object with a summary in Simplified Chinese.`
           }

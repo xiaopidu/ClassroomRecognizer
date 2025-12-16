@@ -198,9 +198,13 @@ function App() {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        <div className={`grid grid-cols-1 gap-6 ${
+          activeTab === AppTab.ANALYZE ? 'xl:grid-cols-4' : ''
+        }`}>
           {/* Left Column: Main View */}
-          <div className="xl:col-span-3 flex-1 min-h-[500px] grid grid-cols-1 gap-6">
+          <div className={`flex-1 min-h-[500px] grid grid-cols-1 gap-6 ${
+            activeTab === AppTab.ANALYZE ? 'xl:col-span-3' : ''
+          }`}>
             {activeTab === AppTab.ANALYZE && (
                <VideoAnalyzer 
                  students={students} 
@@ -225,8 +229,8 @@ function App() {
             )}
           </div>
 
-          {/* Right Column: Parameters (Visible on Analyze and Image Recognition tabs) */}
-          {(activeTab === AppTab.ANALYZE || activeTab === AppTab.IMAGE_RECOGNITION) && (
+          {/* Right Column: Parameters (Visible only on Analyze tab) */}
+          {activeTab === AppTab.ANALYZE && (
             <div className="xl:col-span-1 w-full flex-shrink-0">
                <ParameterControls 
                  params={recognitionParams} 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RecognitionParams, Student } from '../types';
-import { detectFacesFromFile, detectFacesFromBase64 } from '../services/apiService';
+import { detectFacesFromFile, detectFacesFromBase64, getCurrentParams, setDetectionParams } from '../services/apiService';
 import { Download, Upload, Play, SquareDashedMousePointer, RotateCcw, Video, Pause, SkipBack, SkipForward } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -46,6 +46,34 @@ const ImageAnalyzer: React.FC<ImageAnalyzerProps> = ({ students, params, snapsho
 
   // 选择帧进行预览
   const [selectedFrame, setSelectedFrame] = useState<{time: number, imageData: string, detections: any[]} | null>(null);
+
+  // 人脸识别参数
+  const [faceParams, setFaceParams] = useState({
+    min_confidence: 0.5,
+    network_size: 640,
+    min_face_size: 20
+  });
+  const [isParamsLoading, setIsParamsLoading] = useState(false);
+  const [paramUpdateStatus, setParamUpdateStatus] = useState<{success: boolean, message: string} | null>(null);
+
+  // 加载人脸识别参数
+  useEffect(() => {
+    const loadFaceParams = async () => {
+      setIsParamsLoading(true);
+      try {
+        const response = await getCurrentParams();
+        if (response.success) {
+          setFaceParams(response.params);
+        }
+      } catch (err) {
+        console.error('加载人脸识别参数失败:', err);
+      } finally {
+        setIsParamsLoading(false);
+      }
+    };
+    
+    loadFaceParams();
+  }, []);
 
   // Handle snapshot from video
   useEffect(() => {
@@ -144,6 +172,26 @@ const ImageAnalyzer: React.FC<ImageAnalyzerProps> = ({ students, params, snapsho
     }
     
     await processImageDetection(lastBase64Image);
+  };
+
+  // 保存人脸识别参数
+  const saveFaceParams = async () => {
+    setIsParamsLoading(true);
+    setParamUpdateStatus(null);
+    try {
+      const response = await setDetectionParams(faceParams);
+      if (response.success) {
+        setParamUpdateStatus({ success: true, message: '参数保存成功' });
+        setTimeout(() => setParamUpdateStatus(null), 3000);
+      } else {
+        setParamUpdateStatus({ success: false, message: '参数保存失败' });
+      }
+    } catch (err) {
+      console.error('保存人脸识别参数失败:', err);
+      setParamUpdateStatus({ success: false, message: '保存失败' });
+    } finally {
+      setIsParamsLoading(false);
+    }
   };
 
   // 绘制检测到的人脸
@@ -1083,18 +1131,21 @@ const ImageAnalyzer: React.FC<ImageAnalyzerProps> = ({ students, params, snapsho
   };
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-      <div className="p-4 border-b border-slate-700">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <SquareDashedMousePointer className="w-5 h-5" />
-          人脸识别
-        </h2>
-        <p className="text-slate-400 text-sm mt-1">
-          上传图片或视频进行人脸识别检测
-        </p>
-      </div>
-      
-      <div className="p-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 左侧：主要内容区域 */}
+      <div className="lg:col-span-2">
+        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+          <div className="p-4 border-b border-slate-700">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <SquareDashedMousePointer className="w-5 h-5" />
+              人脸识别
+            </h2>
+            <p className="text-slate-400 text-sm mt-1">
+              上传图片或视频进行人脸识别检测
+            </p>
+          </div>
+          
+          <div className="p-4">
         {/* 文件上传区域 */}
         {!imageUrl && !videoUrl && (
           <div className="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center hover:border-slate-500 transition-colors">
@@ -1491,8 +1542,117 @@ const ImageAnalyzer: React.FC<ImageAnalyzerProps> = ({ students, params, snapsho
           </div>
         )}
 
+          </div>
+        </div>
+      </div>
+    
+    {/* 右侧：人脸识别参数调整器 */}
+    <div className="lg:col-span-1">
+      <div className="bg-white rounded-xl shadow-lg p-6 sticky top-6">
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">人脸识别参数</h2>
+        
+        {paramUpdateStatus && (
+          <div className={`mb-4 p-3 rounded-lg text-sm ${
+            paramUpdateStatus.success 
+              ? 'bg-green-50 text-green-800 border border-green-200' 
+              : 'bg-red-50 text-red-800 border border-red-200'
+          }`}>
+            {paramUpdateStatus.message}
+          </div>
+        )}
+        
+        <div className="space-y-6">
+          {/* 置信度阈值 */}
+          <div>
+            <label className="block text-sm text-gray-700 mb-2">
+              最小置信度: <span className="font-medium text-blue-600">{faceParams.min_confidence.toFixed(2)}</span>
+            </label>
+            <input
+              type="range"
+              min="0.01"
+              max="1.0"
+              step="0.01"
+              value={faceParams.min_confidence}
+              onChange={(e) => setFaceParams(prev => ({
+                ...prev,
+                min_confidence: Number(e.target.value)
+              }))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              disabled={isParamsLoading}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              设置人脸检测的最低置信度，值越高结果越准确但可能漏检
+            </p>
+          </div>
+
+          <div className="border-t border-gray-200 my-4"></div>
+
+          {/* 网络大小 */}
+          <div>
+            <label className="block text-sm text-gray-700 mb-2">
+              网络大小: <span className="font-medium text-blue-600">{faceParams.network_size}px</span>
+            </label>
+            <input
+              type="range"
+              min="320"
+              max="1024"
+              step="32"
+              value={faceParams.network_size}
+              onChange={(e) => setFaceParams(prev => ({
+                ...prev,
+                network_size: Number(e.target.value)
+              }))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              disabled={isParamsLoading}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              设置检测网络的输入大小，值越大检测越精确但速度较慢
+            </p>
+          </div>
+
+          <div className="border-t border-gray-200 my-4"></div>
+
+          {/* 最小人脸大小 */}
+          <div>
+            <label className="block text-sm text-gray-700 mb-2">
+              最小人脸大小: <span className="font-medium text-blue-600">{faceParams.min_face_size}px</span>
+            </label>
+            <input
+              type="range"
+              min="10"
+              max="100"
+              step="1"
+              value={faceParams.min_face_size}
+              onChange={(e) => setFaceParams(prev => ({
+                ...prev,
+                min_face_size: Number(e.target.value)
+              }))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              disabled={isParamsLoading}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              设置可检测的最小人脸尺寸，值越小可检测远处的小人脸
+            </p>
+          </div>
+
+          <button
+            onClick={saveFaceParams}
+            disabled={isParamsLoading}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg 
+              disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isParamsLoading ? '保存中...' : '保存参数'}
+          </button>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+            <p className="text-xs text-blue-800">
+              <strong>提示：</strong>修改参数后点击“保存参数”，然后点击“重新检测”应用新参数
+            </p>
+          </div>
+        </div>
       </div>
     </div>
+  </div>
   );
 };
 

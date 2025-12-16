@@ -10,6 +10,9 @@ from PIL import Image
 import logging
 import json
 
+# 导入行为识别服务
+from behavior_service import get_behavior_analyzer
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,6 +31,15 @@ current_params = {
     "min_confidence": 0.5,
     "network_size": 640,
     "min_face_size": 20
+}
+
+# 行为分析参数
+behavior_params = {
+    "head_up_threshold": 2,        # 抬头阈值（鼻子在眼睛上方或同水平线）
+    "head_down_threshold": 8,      # 低头阈值（明显低头才算）
+    "writing_threshold": 30,       # 记笔记阈值（更敏感）
+    "phone_threshold": -10,        # 玩手机阈值（更敏感）
+    "object_min_confidence": 0.5   # 物体检测最小置信度
 }
 
 # 存储学生数据用于人脸识别
@@ -349,6 +361,100 @@ def handle_params():
     elif request.method == 'POST':
         return set_params()
 
+@app.route('/api/behavior-params', methods=['GET', 'POST'])
+def handle_behavior_params():
+    """处理行为分析参数获取和设置"""
+    global behavior_params
+    if request.method == 'GET':
+        try:
+            logger.info(f"返回当前行为分析参数: {behavior_params}")
+            return jsonify({
+                "success": True,
+                "params": behavior_params
+            })
+        except Exception as e:
+            logger.error(f"获取行为分析参数失败: {e}", exc_info=True)
+            return jsonify({
+                "success": False,
+                "error": f"获取行为分析参数失败: {str(e)}"
+            }), 500
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            if not data:
+                logger.warning("没有提供行为分析参数数据")
+                return jsonify({"error": "没有提供行为分析参数数据"}), 400
+                
+            logger.info(f"收到行为分析参数更新请求: {data}")
+            
+            # 更新参数并进行验证
+            updated_params = {}
+            errors = []
+            
+            if 'head_up_threshold' in data:
+                try:
+                    head_up_threshold = float(data['head_up_threshold'])
+                    behavior_params['head_up_threshold'] = head_up_threshold
+                    updated_params['head_up_threshold'] = head_up_threshold
+                except (ValueError, TypeError) as e:
+                    errors.append(f"head_up_threshold 格式错误: {str(e)}")
+            
+            if 'head_down_threshold' in data:
+                try:
+                    head_down_threshold = float(data['head_down_threshold'])
+                    behavior_params['head_down_threshold'] = head_down_threshold
+                    updated_params['head_down_threshold'] = head_down_threshold
+                except (ValueError, TypeError) as e:
+                    errors.append(f"head_down_threshold 格式错误: {str(e)}")
+            
+            if 'writing_threshold' in data:
+                try:
+                    writing_threshold = float(data['writing_threshold'])
+                    behavior_params['writing_threshold'] = writing_threshold
+                    updated_params['writing_threshold'] = writing_threshold
+                except (ValueError, TypeError) as e:
+                    errors.append(f"writing_threshold 格式错误: {str(e)}")
+            
+            if 'phone_threshold' in data:
+                try:
+                    phone_threshold = float(data['phone_threshold'])
+                    behavior_params['phone_threshold'] = phone_threshold
+                    updated_params['phone_threshold'] = phone_threshold
+                except (ValueError, TypeError) as e:
+                    errors.append(f"phone_threshold 格式错误: {str(e)}")
+            
+            if 'object_min_confidence' in data:
+                try:
+                    object_min_confidence = float(data['object_min_confidence'])
+                    if 0.0 <= object_min_confidence <= 1.0:
+                        behavior_params['object_min_confidence'] = object_min_confidence
+                        updated_params['object_min_confidence'] = object_min_confidence
+                    else:
+                        errors.append(f"object_min_confidence 必须在 0.0-1.0 之间，当前值: {object_min_confidence}")
+                except (ValueError, TypeError) as e:
+                    errors.append(f"object_min_confidence 格式错误: {str(e)}")
+                
+            if errors:
+                logger.warning(f"行为分析参数验证失败: {errors}")
+                return jsonify({"error": "行为分析参数验证失败", "details": errors}), 400
+                
+            logger.info(f"行为分析参数已更新: {behavior_params}")
+            
+            # 更新行为分析器参数
+            from behavior_service import get_behavior_analyzer
+            analyzer = get_behavior_analyzer()
+            analyzer.update_params(behavior_params)
+            
+            return jsonify({
+                "success": True,
+                "message": "行为分析参数更新成功",
+                "params": behavior_params,
+                "updated_fields": list(updated_params.keys())
+            })
+        except Exception as e:
+            logger.error(f"行为分析参数更新失败: {e}", exc_info=True)
+            return jsonify({"error": f"行为分析参数更新失败: {str(e)}"}), 500
+
 @app.route('/api/students', methods=['POST'])
 def update_students():
     """更新注册学生数据"""
@@ -361,6 +467,11 @@ def update_students():
         registered_students = data['students']
         logger.info(f"更新了 {len(registered_students)} 名注册学生")
         
+        # 打印学生名单
+        if registered_students:
+            student_names = [s.get('name', 'Unknown') for s in registered_students]
+            logger.info(f"学生名单: {student_names}")
+        
         return jsonify({
             "success": True,
             "message": f"成功更新 {len(registered_students)} 名注册学生",
@@ -369,6 +480,23 @@ def update_students():
     except Exception as e:
         logger.error(f"更新学生数据失败: {e}", exc_info=True)
         return jsonify({"error": f"更新学生数据失败: {str(e)}"}), 500
+
+@app.route('/api/students', methods=['GET'])
+def get_students():
+    """获取当前注册的学生列表"""
+    try:
+        student_names = [s.get('name', 'Unknown') for s in registered_students] if registered_students else []
+        logger.info(f"查询学生列表，当前 {len(registered_students)} 名学生: {student_names}")
+        
+        return jsonify({
+            "success": True,
+            "count": len(registered_students),
+            "students": registered_students,
+            "student_names": student_names
+        })
+    except Exception as e:
+        logger.error(f"获取学生列表失败: {e}", exc_info=True)
+        return jsonify({"error": f"获取学生列表失败: {str(e)}"}), 500
 
 def get_params():
     """获取当前参数"""
@@ -457,6 +585,359 @@ def health_check():
         "model_loaded": face_app is not None,
         "params": current_params
     })
+
+@app.route('/api/behavior-analyze', methods=['POST'])
+def analyze_behavior():
+    """分析视频帧中的学生行为"""
+    try:
+        # 获取上传的图像文件
+        if 'image' not in request.files:
+            return jsonify({"error": "没有上传图像文件"}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({"error": "文件名为空"}), 400
+        
+        # 保存上传的文件
+        filename = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(filename)
+        
+        # 读取图像
+        img = cv2.imread(filename)
+        if img is None:
+            return jsonify({"error": "无法读取图像文件"}), 400
+        
+        # 获取行为分析器并分析图像
+        from behavior_service import get_behavior_analyzer
+        analyzer = get_behavior_analyzer(behavior_params)
+        result = analyzer.analyze_frame(img)
+        
+        # 删除临时文件
+        os.remove(filename)
+        
+        return jsonify({
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"行为分析出错: {e}")
+        return jsonify({"error": f"行为分析出错: {str(e)}"}), 500
+
+@app.route('/api/behavior-analyze-base64', methods=['POST'])
+def analyze_behavior_base64():
+    """分析Base64图像中的学生行为"""
+    try:
+        # 获取 Base64 图像数据
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({"error": "没有提供图像数据"}), 400
+        
+        # 解码 Base64 图像
+        image_data = data['image']
+        if image_data.startswith('data:image'):
+            image_data = image_data.split(',')[1]
+        
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(BytesIO(image_bytes))
+        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        
+        # 获取行为分析器并分析图像
+        from behavior_service import get_behavior_analyzer
+        analyzer = get_behavior_analyzer(behavior_params)
+        result = analyzer.analyze_frame(img)
+        
+        return jsonify({
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"行为分析出错: {e}")
+        return jsonify({"error": f"行为分析出错: {str(e)}"}), 500
+
+@app.route('/api/behavior-analyze-video-frames', methods=['POST'])
+def analyze_video_frames():
+    """分析视频帧序列中的学生行为并进行汇总"""
+    try:
+        # 获取上传的图像文件列表
+        if 'images' not in request.files:
+            return jsonify({"error": "没有上传图像文件"}), 400
+        
+        files = request.files.getlist('images')
+        if not files or len(files) == 0:
+            return jsonify({"error": "文件列表为空"}), 400
+        
+        # 读取所有图像
+        frames = []
+        filenames = []
+        for file in files:
+            if file.filename != '':
+                # 保存上传的文件
+                filename = os.path.join(UPLOAD_FOLDER, file.filename)
+                file.save(filename)
+                filenames.append(filename)
+                
+                # 读取图像
+                img = cv2.imread(filename)
+                if img is not None:
+                    frames.append(img)
+        
+        if len(frames) == 0:
+            return jsonify({"error": "无法读取任何图像文件"}), 400
+        
+        # 获取行为分析器并分析视频帧
+        from behavior_service import get_behavior_analyzer
+        analyzer = get_behavior_analyzer(behavior_params)
+        result = analyzer.analyze_video_frames(frames)
+        
+        # 删除临时文件
+        for filename in filenames:
+            os.remove(filename)
+        
+        return jsonify({
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"视频帧行为分析出错: {e}")
+        return jsonify({"error": f"视频帧行为分析出错: {str(e)}"}), 500
+
+@app.route('/api/behavior-analyze-video-base64', methods=['POST'])
+def analyze_video_frames_base64():
+    """分析Base64编码的视频帧序列中的学生行为并进行汇总"""
+    try:
+        # 获取 Base64 图像数据列表
+        data = request.get_json()
+        if not data or 'images' not in data:
+            return jsonify({"error": "没有提供图像数据"}), 400
+        
+        images_data = data['images']
+        if not isinstance(images_data, list) or len(images_data) == 0:
+            return jsonify({"error": "图像数据列表为空"}), 400
+        
+        # 解码所有Base64图像
+        frames = []
+        for image_data in images_data:
+            if image_data.startswith('data:image'):
+                image_data = image_data.split(',')[1]
+            
+            image_bytes = base64.b64decode(image_data)
+            image = Image.open(BytesIO(image_bytes))
+            img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            frames.append(img)
+        
+        if len(frames) == 0:
+            return jsonify({"error": "无法解码任何图像数据"}), 400
+        
+        # 获取行为分析器并分析视频帧
+        from behavior_service import get_behavior_analyzer
+        analyzer = get_behavior_analyzer(behavior_params)
+        result = analyzer.analyze_video_frames(frames)
+        
+        return jsonify({
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"视频帧行为分析出错: {e}")
+        return jsonify({"error": f"视频帧行为分析出错: {str(e)}"}), 500
+
+@app.route('/api/behavior-analyze-video-base64-with-chart', methods=['POST'])
+def analyze_video_frames_base64_with_chart():
+    """分析Base64编码的视频帧序列中的学生行为并进行汇总，生成图表"""
+    try:
+        # 获取 Base64 图像数据列表
+        data = request.get_json()
+        if not data or 'images' not in data:
+            return jsonify({"error": "没有提供图像数据"}), 400
+        
+        images_data = data['images']
+        if not isinstance(images_data, list) or len(images_data) == 0:
+            return jsonify({"error": "图像数据列表为空"}), 400
+        
+        # 解码所有Base64图像
+        frames = []
+        for image_data in images_data:
+            if image_data.startswith('data:image'):
+                image_data = image_data.split(',')[1]
+            
+            image_bytes = base64.b64decode(image_data)
+            image = Image.open(BytesIO(image_bytes))
+            img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            frames.append(img)
+        
+        if len(frames) == 0:
+            return jsonify({"error": "无法解码任何图像数据"}), 400
+        
+        # 获取行为分析器并分析视频帧
+        from behavior_service import get_behavior_analyzer
+        analyzer = get_behavior_analyzer(behavior_params)
+        result = analyzer.analyze_video_frames(frames)
+        
+        # 生成行为分析图表
+        chart_path = analyzer.generate_behavior_chart(result['summary'])
+        
+        # 读取图表文件并转换为Base64
+        with open(chart_path, "rb") as f:
+            chart_data = base64.b64encode(f.read()).decode('utf-8')
+        
+        # 删除临时图表文件
+        os.remove(chart_path)
+        
+        # 将图表数据添加到结果中
+        result['chart_image'] = f'data:image/png;base64,{chart_data}'
+        
+        return jsonify({
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"视频帧行为分析出错: {e}")
+        return jsonify({"error": f"视频帧行为分析出错: {str(e)}"}), 500
+
+@app.route('/api/behavior-analyze-individual', methods=['POST'])
+def analyze_individual_behavior():
+    """分析指定学生的行为（结合人脸识别和姿态检测）"""
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        if not data or 'images' not in data or 'target_student' not in data:
+            return jsonify({"error": "缺少必要参数：images, target_student"}), 400
+        
+        images_data = data['images']
+        target_student = data['target_student']
+        
+        if not isinstance(images_data, list) or len(images_data) == 0:
+            return jsonify({"error": "图像数据列表为空"}), 400
+        
+        if not target_student or not isinstance(target_student, str):
+            return jsonify({"error": "请指定目标学生姓名"}), 400
+        
+        logger.info(f"开始分析学生 {target_student} 的行为，共 {len(images_data)} 帧")
+        
+        # 解码所有Base64图像
+        frames = []
+        for image_data in images_data:
+            if image_data.startswith('data:image'):
+                image_data = image_data.split(',')[1]
+            
+            image_bytes = base64.b64decode(image_data)
+            image = Image.open(BytesIO(image_bytes))
+            img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            frames.append(img)
+        
+        if len(frames) == 0:
+            return jsonify({"error": "无法解码任何图像数据"}), 400
+        
+        # 调试：打印当前注册学生信息
+        logger.info(f"当前注册学生数量: {len(registered_students)}")
+        if registered_students:
+            student_names = [s.get('name', 'Unknown') for s in registered_students]
+            logger.info(f"注册学生名单: {student_names}")
+            logger.info(f"目标学生: {target_student}")
+        else:
+            logger.warning("警告：registered_students 为空！")
+        
+        # 创建个人行为分析器
+        from individual_behavior_service import IndividualBehaviorAnalyzer
+        analyzer = IndividualBehaviorAnalyzer(face_app, behavior_params)
+        
+        # 分析指定学生的行为
+        result = analyzer.analyze_individual_video(
+            frames,
+            target_student,
+            registered_students  # 修复：使用正确的变量名
+        )
+        
+        # 检查是否有错误
+        if "error" in result:
+            return jsonify({
+                "success": False,
+                "error": result["error"],
+                "result": result
+            }), 200
+        
+        logger.info(f"学生 {target_student} 行为分析完成")
+        
+        return jsonify({
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"个人行为分析出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"个人行为分析出错: {str(e)}"}), 500
+
+@app.route('/api/behavior-analyze-bbox', methods=['POST'])
+def analyze_behavior_with_bbox():
+    """基于用户框选区域分析学生行为（新方案）"""
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        if not data or 'images' not in data or 'target_student' not in data or 'initial_bbox' not in data:
+            return jsonify({"error": "缺少必要参数：images, target_student, initial_bbox"}), 400
+        
+        images_data = data['images']
+        target_student = data['target_student']
+        initial_bbox = data['initial_bbox']  # {'x': x, 'y': y, 'width': width, 'height': height}
+        
+        if not isinstance(images_data, list) or len(images_data) == 0:
+            return jsonify({"error": "图像数据列表为空"}), 400
+        
+        if not target_student or not isinstance(target_student, str):
+            return jsonify({"error": "请指定目标学生姓名"}), 400
+        
+        # 验证边界框格式
+        required_keys = ['x', 'y', 'width', 'height']
+        if not all(key in initial_bbox for key in required_keys):
+            return jsonify({"error": f"边界框格式错误，必须包含: {required_keys}"}), 400
+        
+        logger.info(f"开始基于边界框追踪分析学生 {target_student}，共 {len(images_data)} 帧")
+        logger.info(f"初始边界框: {initial_bbox}")
+        
+        # 解码所有Base64图像
+        frames = []
+        for image_data in images_data:
+            if image_data.startswith('data:image'):
+                image_data = image_data.split(',')[1]
+            
+            image_bytes = base64.b64decode(image_data)
+            image = Image.open(BytesIO(image_bytes))
+            img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            frames.append(img)
+        
+        if len(frames) == 0:
+            return jsonify({"error": "无法解码任何图像数据"}), 400
+        
+        # 创建边界框追踪分析器
+        from bbox_tracker_service import BBoxTrackerAnalyzer
+        analyzer = BBoxTrackerAnalyzer(behavior_params)
+        
+        # 基于边界框分析行为
+        result = analyzer.analyze_with_bbox(
+            frames,
+            target_student,
+            initial_bbox
+        )
+        
+        logger.info(f"学生 {target_student} 边界框追踪分析完成")
+        
+        return jsonify({
+            "success": True,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"边界框追踪分析出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"边界框追踪分析出错: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)

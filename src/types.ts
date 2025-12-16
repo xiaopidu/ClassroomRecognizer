@@ -43,6 +43,8 @@ export interface SingleStudentBehaviorReport {
   posture: string; // e.g., "Upright", "Leaning back"
   expression: string; // e.g., "Focused", "Bored"
   summary: string;
+  head_percentages?: { [key: string]: number }; // 单独的头部姿态百分比
+  hand_percentages?: { [key: string]: number }; // 单独的手部活动百分比
 }
 
 // Augment window to include face-api types since we load it via script

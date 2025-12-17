@@ -35,11 +35,11 @@ current_params = {
 
 # 行为分析参数
 behavior_params = {
-    "head_up_threshold": 2,        # 抬头阈值（鼻子在眼睛上方或同水平线）
-    "head_down_threshold": 8,      # 低头阈值（明显低头才算）
-    "writing_threshold": 30,       # 记笔记阈值（更敏感）
-    "phone_threshold": -10,        # 玩手机阈值（更敏感）
-    "object_min_confidence": 0.5   # 物体检测最小置信度
+    "head_up_threshold": 2,        # 抬头阈值(鼻子在眼睛上方或同水平线)
+    "head_down_threshold": 8,      # 低头阈值(明显低头才算)
+    "writing_threshold": 30,       # 记笔记阈值(更敏感)
+    "phone_threshold": -10,        # 玩手机阈值(更敏感)
+    "object_min_confidence": 0.2   # 物体检测最小置信度(降低以提高检测率)
 }
 
 # 存储学生数据用于人脸识别

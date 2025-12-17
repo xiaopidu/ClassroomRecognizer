@@ -204,7 +204,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
         return;
       }
 
-      setProgress(10);
+      setProgress(5);
       
       const video = document.createElement('video');
       video.src = URL.createObjectURL(videoFile);
@@ -218,7 +218,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
         }
         
         setTrimmedVideoUrl(video.src);
-        setProgress(30);
+        setProgress(10);
         resolve();
       };
       
@@ -233,7 +233,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
       throw new Error('没有可用的视频片段');
     }
 
-    setProgress(40);
+    setProgress(15);
     
     try {
       const video = document.createElement('video');
@@ -273,7 +273,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
         // 显示框选界面
         setFirstFrameData(firstFrame);
         setIsSelectingBBox(true);
-        setProgress(50);
+        setProgress(20);
         
         console.log('等待用户框选目标学生...');
         
@@ -285,7 +285,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
         }
         
         console.log('用户已框选:', bbox);
-        setProgress(55);
+        setProgress(25);
       }
       
       const endTime = Math.min(trimStart + trimDuration, video.duration);
@@ -318,27 +318,30 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
         const frameData = canvas.toDataURL('image/jpeg', 0.8);
         frames.push(frameData);
         
-        const extractProgress = 60 + Math.floor((i / totalFrames) * 20);
+        // 帧提取进度: 30% -> 50% (占20%)
+        const extractProgress = 30 + Math.floor((i / totalFrames) * 20);
         setProgress(extractProgress);
       }
       
       console.log(`成功提取${frames.length}帧`);
-      setProgress(80);
+      setProgress(50);
       
       // 根据分析模式调用不同API
       let result;
       if (analysisMode === 'individual') {
         console.log('开始基于边界框的个人分析:', bbox);
+        setProgress(55); // 开始后端分析
         
         // 调用边界框追踪分析API
         result = await analyzeWithBBox(frames, bbox!);
       } else {
         // 全班行为分析：只做姿态检测
         console.log('开始全班分析');
+        setProgress(55); // 开始后端分析
         result = await analyzeVideoFramesBase64(frames);
       }
       
-      setProgress(90);
+      setProgress(95); // 后端分析完成(55%->95%,占40%,这是最耗时的部分)
       setAnalysisResult(result);
       setProgress(100);
       
@@ -1129,26 +1132,23 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl border border-blue-200">
                   <div className="text-3xl font-bold text-blue-700 mb-1">
-                    {analysisResult.frame_count}
+                    {(analysisResult.summary.behavior_percentages.looking_up || 0).toFixed(1)}%
                   </div>
-                  <div className="text-sm font-medium text-gray-700">总帧数</div>
+                  <div className="text-sm font-medium text-gray-700">抬头听课比例</div>
                 </div>
                 
                 <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl border border-green-200">
                   <div className="text-3xl font-bold text-green-700 mb-1">
-                    {analysisResult.summary.avg_student_count || Math.round(
-                      analysisResult.frame_results.reduce((sum, frame) => sum + frame.student_count, 0) / 
-                      analysisResult.frame_count
-                    )}
+                    {(analysisResult.summary.behavior_percentages.writing || 0).toFixed(1)}%
                   </div>
-                  <div className="text-sm font-medium text-gray-700">平均学生数</div>
+                  <div className="text-sm font-medium text-gray-700">记笔记比例</div>
                 </div>
                 
-                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-6 rounded-xl border border-yellow-200">
-                  <div className="text-3xl font-bold text-yellow-700 mb-1">
-                    {(analysisResult.summary.behavior_percentages.looking_up || 0).toFixed(1)}%
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-xl border border-purple-200">
+                  <div className="text-3xl font-bold text-purple-700 mb-1">
+                    {(analysisResult.summary.object_percentages?.laptop || 0).toFixed(1)}%
                   </div>
-                  <div className="text-sm font-medium text-gray-700">抬头比例</div>
+                  <div className="text-sm font-medium text-gray-700">使用电脑比例</div>
                 </div>
                 
                 <div className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-xl border border-red-200">
@@ -1160,7 +1160,7 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
               </div>
             ) : (
               // 个人分析指标
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
                 <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-xl border border-purple-200">
                   <div className="text-3xl font-bold text-purple-700 mb-1">
                     {isIndividualResult(analysisResult) && analysisResult.summary.attention_score !== undefined
@@ -1191,6 +1191,13 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ students, params, onSnaps
                     {(analysisResult.summary.behavior_percentages.writing || 0).toFixed(1)}%
                   </div>
                   <div className="text-sm font-medium text-gray-700">记笔记时长</div>
+                </div>
+                
+                <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-6 rounded-xl border border-orange-200">
+                  <div className="text-3xl font-bold text-orange-700 mb-1">
+                    {(isIndividualResult(analysisResult) && analysisResult.summary.object_percentages?.laptop || 0).toFixed(1)}%
+                  </div>
+                  <div className="text-sm font-medium text-gray-700">使用电脑比例</div>
                 </div>
                 
                 <div className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-xl border border-red-200">

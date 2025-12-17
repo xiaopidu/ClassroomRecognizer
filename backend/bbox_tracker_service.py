@@ -6,7 +6,7 @@
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
+from ultralytics import YOLO, RTDETR
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 import time
@@ -27,13 +27,18 @@ class BBoxTrackerAnalyzer:
         """初始化分析器"""
         logger.info("正在初始化边界框跟踪分析器...")
         
-        # 加载姿态检测模型
+        # 加载姿态检测模型(保持YOLOv8)
         self.pose_model = YOLO('yolov8n-pose.pt')
-        logger.info("✓ 姿态检测模型加载成功")
+        logger.info("✓ 姿态检测模型(YOLOv8 Pose)加载成功")
         
-        # 加载物体检测模型
-        self.object_model = YOLO('yolov8n.pt')
-        logger.info("✓ 物体检测模型加载成功")
+        # 加载物体检测模型(升级为RT-DETR)
+        try:
+            self.object_model = RTDETR('rtdetr-l.pt')
+            logger.info("✓ 物体检测模型(RT-DETR-L)加载成功")
+        except Exception as e:
+            logger.warning(f"RT-DETR模型加载失败: {e}, 回退使用YOLOv8")
+            self.object_model = YOLO('yolov8n.pt')
+            logger.info("✓ 物体检测模型(YOLOv8)加载成功")
         
         # 行为颜色映射（BGR格式）
         self.behavior_colors = {
@@ -600,6 +605,7 @@ class BBoxTrackerAnalyzer:
         # 统计各种行为
         head_pose_stats = {}
         hand_activity_stats = {}
+        desktop_object_stats = {}  # 新增:物体统计
         total_frames = len(frame_results)
         
         for result in frame_results:
@@ -613,6 +619,11 @@ class BBoxTrackerAnalyzer:
                 # 统计手部活动
                 hand_activity = behavior.get("hand_activity", "neutral")
                 hand_activity_stats[hand_activity] = hand_activity_stats.get(hand_activity, 0) + 1
+                
+                # 统计桌面物品
+                desktop_objects = behavior.get("desktop_objects", [])
+                for obj in desktop_objects:
+                    desktop_object_stats[obj] = desktop_object_stats.get(obj, 0) + 1
         
         # 计算百分比 - 分别统计头部和手部
         head_percentages = {}
@@ -623,6 +634,11 @@ class BBoxTrackerAnalyzer:
         for activity, count in hand_activity_stats.items():
             hand_percentages[activity] = round((count / total_frames) * 100, 2)
         
+        # 计算物体出现百分比
+        object_percentages = {}
+        for obj, count in desktop_object_stats.items():
+            object_percentages[obj] = round((count / total_frames) * 100, 2)
+        
         # 合并到behavior_percentages(为了保持API兼容)
         behavior_percentages = {**head_percentages, **hand_percentages}
         
@@ -630,7 +646,9 @@ class BBoxTrackerAnalyzer:
         looking_up_pct = behavior_percentages.get("looking_up", 0)
         writing_pct = behavior_percentages.get("writing", 0)
         using_phone_pct = behavior_percentages.get("using_phone", 0)
+        laptop_pct = object_percentages.get("laptop", 0)
         
+        # 看电脑不扣分,但玩手机扣分
         attention_score = max(0, min(100, looking_up_pct * 0.6 + writing_pct * 0.3 - using_phone_pct * 0.3))
         
         # 生成结论
@@ -645,6 +663,10 @@ class BBoxTrackerAnalyzer:
         if writing_pct > 20:
             conclusions.append(f"记笔记比例为{writing_pct:.1f}%，学习态度积极")
         
+        # 新增:笔记本电脑使用提示
+        if laptop_pct > 10:
+            conclusions.append(f"使用笔记本电脑比例为{laptop_pct:.1f}%，可能在进行电子笔记或编程学习")
+        
         if using_phone_pct > 10:
             conclusions.append(f"使用手机比例为{using_phone_pct:.1f}%，建议减少分心行为")
         
@@ -652,6 +674,7 @@ class BBoxTrackerAnalyzer:
             "behavior_percentages": behavior_percentages,
             "head_percentages": head_percentages,  # 单独返回头部姿态百分比
             "hand_percentages": hand_percentages,  # 单独返回手部活动百分比
+            "object_percentages": object_percentages,  # 新增:物体百分比
             "attention_score": round(attention_score, 2),
             "recognition_accuracy": round((total_frames / len(frame_results)) * 100, 2) if frame_results else 0,
             "conclusions": conclusions

@@ -45,6 +45,7 @@ export interface SingleStudentBehaviorReport {
   summary: string;
   head_percentages?: { [key: string]: number }; // 单独的头部姿态百分比
   hand_percentages?: { [key: string]: number }; // 单独的手部活动百分比
+  object_percentages?: { [key: string]: number }; // 物体出现百分比(laptop, book, cell_phone)
 }
 
 // Augment window to include face-api types since we load it via script

@@ -6,7 +6,7 @@
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
+from ultralytics import YOLO, RTDETR
 import logging
 from typing import Dict, List, Any
 import time
@@ -21,15 +21,20 @@ logger = logging.getLogger(__name__)
 class ClassroomBehaviorAnalyzer:
     def __init__(self, behavior_params=None):
         """初始化行为分析器"""
-        logger.info("正在加载YOLOv8模型...")
+        logger.info("正在加载检测模型...")
         
-        # 加载姿态检测模型
+        # 加载姿态检测模型(保持YOLOv8)
         self.pose_model = YOLO('yolov8n-pose.pt')
-        logger.info("✓ 姿态检测模型加载成功")
+        logger.info("✓ 姿态检测模型(YOLOv8 Pose)加载成功")
         
-        # 加载物体检测模型
-        self.object_model = YOLO('yolov8n.pt')
-        logger.info("✓ 物体检测模型加载成功")
+        # 加载物体检测模型(升级为RT-DETR)
+        try:
+            self.object_model = RTDETR('rtdetr-l.pt')
+            logger.info("✓ 物体检测模型(RT-DETR-L)加载成功")
+        except Exception as e:
+            logger.warning(f"RT-DETR模型加载失败: {e}, 回退使用YOLOv8")
+            self.object_model = YOLO('yolov8n.pt')
+            logger.info("✓ 物体检测模型(YOLOv8)加载成功")
         
         # COCO数据集的类别标签
         self.coco_labels = [
@@ -58,11 +63,11 @@ class ClassroomBehaviorAnalyzer:
         
         # 行为分析参数
         self.behavior_params = {
-            "head_up_threshold": 2,        # 抬头阈值（正常坐姿算抬头）
-            "head_down_threshold": 8,      # 低头阈值（明显低头才算）
-            "writing_threshold": 30,       # 记笔记阈值（更敏感）
-            "phone_threshold": -10,        # 玩手机阈值（更敏感）
-            "object_min_confidence": 0.5   # 物体检测最小置信度
+            "head_up_threshold": 2,        # 抬头阈值(正常坐姿算抬头)
+            "head_down_threshold": 8,      # 低头阈值(明显低头才算)
+            "writing_threshold": 30,       # 记笔记阈值(更敏感)
+            "phone_threshold": -10,        # 玩手机阈倿(更敏感)
+            "object_min_confidence": 0.2   # 物体检测最小置信度(降低以提高检测率)
         }
         
         # 如果提供了自定义参数，则更新默认参数
@@ -171,21 +176,21 @@ class ClassroomBehaviorAnalyzer:
                         if result.boxes is not None and i < len(result.boxes):
                             box = result.boxes[i]
                             xyxy = box.xyxy.cpu().numpy()[0]
-                            behavior["bbox"] = {
+                            bbox = {
                                 "x1": int(xyxy[0]),
                                 "y1": int(xyxy[1]),
                                 "x2": int(xyxy[2]),
                                 "y2": int(xyxy[3])
                             }
+                            behavior["bbox"] = bbox
+                            
+                            # 检测该学生区域内的物品(与个人分析保持一致)
+                            student_objects = self._analyze_desktop_objects_in_bbox(object_results, bbox)
+                            behavior["desktop_objects"] = student_objects
+                        else:
+                            behavior["desktop_objects"] = []
                         
                         behaviors.append(behavior)
-        
-        # 处理物体检测结果，识别桌面物品
-        desktop_objects = self._analyze_desktop_objects(object_results)
-        
-        # 将桌面物品信息添加到行为分析中
-        for behavior in behaviors:
-            behavior["desktop_objects"] = desktop_objects
             
         return behaviors
     
@@ -305,6 +310,10 @@ class ClassroomBehaviorAnalyzer:
                     confidence = float(box.conf.cpu().numpy()[0])
                     label = self.coco_labels[class_id] if class_id < len(self.coco_labels) else "unknown"
                     
+                    # 调试日志:输出所有检测到的物体
+                    if confidence >= 0.15:  # 显示置信度>=0.15的所有物体
+                        logger.info(f"检测到物体: {label}, 置信度: {confidence:.3f}")
+                    
                     # 检查是否是我们关心的物品并且置信度足够高
                     if label in ["book", "laptop", "cell phone", "keyboard"] and confidence >= self.behavior_params["object_min_confidence"]:
                         # 获取边界框坐标
@@ -321,8 +330,78 @@ class ClassroomBehaviorAnalyzer:
                                 "y2": int(y2)
                             }
                         })
+                        logger.info(f"✓ 添加到桌面物品: {label}, 置信度: {confidence:.3f}")
         
         return desktop_objects
+    
+    def _analyze_desktop_objects_in_bbox(self, object_results, bbox: Dict[str, int]) -> List[str]:
+        """检测边界框区域内的物品
+        
+        Args:
+            object_results: 物体检测结果
+            bbox: 学生边界框 {'x1', 'y1', 'x2', 'y2'}
+            
+        Returns:
+            检测到的物品标签列表
+        """
+        detected_objects = []
+        
+        for result in object_results:
+            if result.boxes is not None:
+                for box in result.boxes:
+                    obj_bbox = box.xyxy.cpu().numpy()[0]
+                    obj_bbox_dict = {
+                        'x1': int(obj_bbox[0]),
+                        'y1': int(obj_bbox[1]),
+                        'x2': int(obj_bbox[2]),
+                        'y2': int(obj_bbox[3])
+                    }
+                    
+                    # 检查物体是否在学生区域内(IoU > 0.1)
+                    if self._calculate_iou(bbox, obj_bbox_dict) > 0.1:
+                        class_id = int(box.cls.cpu().numpy()[0])
+                        confidence = float(box.conf.cpu().numpy()[0])
+                        label = self.coco_labels[class_id] if class_id < len(self.coco_labels) else "unknown"
+                        
+                        # 检查是否是我们关心的物品并且置信度足够高
+                        if label in ["book", "laptop", "cell phone", "keyboard"] and confidence >= self.behavior_params["object_min_confidence"]:
+                            detected_objects.append({
+                                "label": label,
+                                "confidence": confidence
+                            })
+        
+        return detected_objects
+    
+    def _calculate_iou(self, bbox1: Dict[str, int], bbox2: Dict[str, int]) -> float:
+        """计算两个边界框的IoU
+        
+        Args:
+            bbox1: 边界框1 {'x1', 'y1', 'x2', 'y2'}
+            bbox2: 边界框2 {'x1', 'y1', 'x2', 'y2'}
+            
+        Returns:
+            IoU值 (0-1)
+        """
+        x1_1, y1_1, x2_1, y2_1 = bbox1['x1'], bbox1['y1'], bbox1['x2'], bbox1['y2']
+        x1_2, y1_2, x2_2, y2_2 = bbox2['x1'], bbox2['y1'], bbox2['x2'], bbox2['y2']
+        
+        # 计算交集
+        x1_i = max(x1_1, x1_2)
+        y1_i = max(y1_1, y1_2)
+        x2_i = min(x2_1, x2_2)
+        y2_i = min(y2_1, y2_2)
+        
+        if x2_i < x1_i or y2_i < y1_i:
+            return 0.0
+        
+        intersection = (x2_i - x1_i) * (y2_i - y1_i)
+        
+        # 计算并集
+        area1 = (x2_1 - x1_1) * (y2_1 - y1_1)
+        area2 = (x2_2 - x1_2) * (y2_2 - y1_2)
+        union = area1 + area2 - intersection
+        
+        return intersection / union if union > 0 else 0.0
     
     def _draw_behavior_annotations(self, frame: np.ndarray, behaviors: List[Dict], object_results) -> np.ndarray:
         """
@@ -520,10 +599,14 @@ class ClassroomBehaviorAnalyzer:
             for activity in hand_activity_stats.keys():
                 behavior_percentages[activity] = 0.0
         
-        # 物品百分比（相对于总帧数）
+        # 物品百分比（相对于总学生次数，表示有多少比例的学生在使用该物品）
         object_percentages = {}
-        for obj, count in object_stats.items():
-            object_percentages[obj] = round((count / total_frames) * 100, 2)
+        if total_student_instances > 0:
+            for obj, count in object_stats.items():
+                object_percentages[obj] = round((count / total_student_instances) * 100, 2)
+        else:
+            for obj in object_stats.keys():
+                object_percentages[obj] = 0.0
         
         # 合并统计数据（为了保持API兼容性）
         behavior_stats = {**head_pose_stats, **hand_activity_stats}

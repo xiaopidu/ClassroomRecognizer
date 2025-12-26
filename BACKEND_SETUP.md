@@ -62,12 +62,12 @@ chmod +x start.sh
 ```bash
 export FLASK_APP=app.py
 export FLASK_ENV=development
-flask run --host=0.0.0.0 --port=5000
+flask run --host=0.0.0.0 --port=5001
 ```
 
 ## 服务验证
 
-启动成功后，后端服务将在 `http://localhost:5000` 运行。
+启动成功后，后端服务将在 `http://localhost:5001` 运行。
 
 ### 健康检查端点
 - `GET /health` - 检查服务和模型状态
@@ -106,9 +106,9 @@ pip install opencv-python==4.8.0.74
 ```
 
 ### 3. 端口冲突
-修改启动端口：
-```bash
-flask run --host=0.0.0.0 --port=5001
+如果 5001 端口被占用，可以修改启动端口。编辑 `app.py` 最后一行：
+```python
+app.run(host='0.0.0.0', port=YOUR_PORT, debug=True)
 ```
 同时需要修改前端 `src/services/apiService.ts` 中的 `API_BASE_URL`。
 

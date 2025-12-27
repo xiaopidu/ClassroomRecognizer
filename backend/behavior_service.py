@@ -450,24 +450,53 @@ class ClassroomBehaviorAnalyzer:
                 draw = ImageDraw.Draw(pil_img)
                 
                 # 尝试加载中文字体
-                try:
-                    # macOS和Linux常见中文字体
-                    font = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", 16)
-                except:
+                font = None
+                font_paths = [
+                    # Windows 字体
+                    "C:/Windows/Fonts/msyh.ttc",  # 微软雅黑
+                    "C:/Windows/Fonts/simhei.ttf",  # 黑体
+                    "C:/Windows/Fonts/simsun.ttc",  # 宋体
+                    # macOS 字体
+                    "/System/Library/Fonts/PingFang.ttc",
+                    # Linux 字体
+                    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                    "/usr/share/fonts/truetype/arphic/uming.ttc",
+                ]
+                
+                for font_path in font_paths:
                     try:
-                        font = ImageFont.truetype("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 16)
+                        font = ImageFont.truetype(font_path, 16)
+                        break
                     except:
-                        try:
-                            font = ImageFont.truetype("SimHei.ttf", 16)
-                        except:
-                            font = ImageFont.load_default()
+                        continue
+                
+                # 如果所有字体都加载失败，使用 OpenCV 绘制英文
+                if font is None:
+                    logger.warning("无法加载中文字体，使用 OpenCV 绘制英文")
+                    # 使用 OpenCV 直接绘制英文
+                    cv2.rectangle(frame, (bbox["x1"], bbox["y1"]-20), 
+                                (bbox["x1"]+150, bbox["y1"]), (0, 0, 0), -1)
+                    cv2.putText(frame, f"{behavior['head_pose']}/{behavior['hand_activity']}",
+                              (bbox["x1"], bbox["y1"]-5), cv2.FONT_HERSHEY_SIMPLEX, 
+                              0.4, color, 1)
+                    continue  # 跳过 PIL 绘制
                 
                 # 绘制文本
                 text_position = (bbox["x1"], max(0, bbox["y1"] - 25))
                 # 添加黑色背景，提高可见度
-                bbox_text = draw.textbbox(text_position, label, font=font)
-                draw.rectangle(bbox_text, fill=(0, 0, 0, 128))
-                draw.text(text_position, label, fill=color, font=font)
+                try:
+                    bbox_text = draw.textbbox(text_position, label, font=font)
+                    draw.rectangle(bbox_text, fill=(0, 0, 0, 128))
+                    draw.text(text_position, label, fill=color, font=font)
+                except Exception as e:
+                    logger.warning(f"绘制中文失败: {e}，使用OpenCV绘制")
+                    # 备选方案: 使用 OpenCV
+                    cv2.rectangle(frame, (bbox["x1"], bbox["y1"]-20), 
+                                (bbox["x1"]+150, bbox["y1"]), (0, 0, 0), -1)
+                    cv2.putText(frame, f"{behavior['head_pose']}/{behavior['hand_activity']}",
+                              (bbox["x1"], bbox["y1"]-5), cv2.FONT_HERSHEY_SIMPLEX, 
+                              0.4, color, 1)
+                    continue
                 
                 # 转回 OpenCV 格式
                 frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)

@@ -152,11 +152,7 @@ function App() {
           <nav className="flex bg-slate-800 p-1 rounded-lg">
             <button
               onClick={() => setActiveTab(AppTab.ANALYZE)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
-                activeTab === AppTab.ANALYZE 
-                  ? 'bg-blue-600 text-white shadow-lg' 
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
-              }`}
+              className="hidden"
             >
               <Activity className="w-4 h-4" /> 行为分析
             </button>
@@ -206,17 +202,14 @@ function App() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* 添加后端服务提示 */}
-        <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-4 mb-6">
-          <div className="flex items-start">
-            <AlertTriangle className="h-5 w-5 text-amber-400 mr-2 mt-0.5 flex-shrink-0" />
-            <div>
-              <h3 className="text-amber-200 font-medium">后端服务要求</h3>
-              <p className="text-amber-100 text-sm mt-1">
-                本应用需要启动后端 Python 服务才能进行人脸检测。请确保后端服务已在 http://localhost:5001 运行。
-                <br />
-                启动方法：进入 backend 目录，运行 ./start.sh 或按照 BACKEND_SETUP.md 文档操作。
-              </p>
-            </div>
+        <div className="bg-amber-900/30 border border-amber-700 rounded-lg px-4 py-2 mb-6">
+          <div className="flex items-center">
+            <AlertTriangle className="h-4 w-4 text-amber-400 mr-2 flex-shrink-0" />
+            <p className="text-amber-100 text-xs">
+              <span className="font-medium">后端服务要求：</span>
+              本应用需要启动后端 Python 服务才能进行人脸检测。请确保后端服务已在 http://localhost:5001 运行。
+              启动方法：进入 backend 目录，运行 ./start.sh 或按照 BACKEND_SETUP.md 文档操作。
+            </p>
           </div>
         </div>
         

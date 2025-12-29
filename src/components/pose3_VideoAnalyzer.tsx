@@ -604,55 +604,97 @@ const Pose3VideoAnalyzer: React.FC = () => {
             {/* 分析结果 */}
             {analysisResult && (
               <div className="bg-white rounded-xl shadow-lg p-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">分析结果</h2>
+                {/* 标题和下载按钮 */}
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-semibold text-gray-900">分析结果</h2>
+                  {analysisMode === 'class' && outputVideoUrl && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const response = await fetch(outputVideoUrl);
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = 'behavior_analysis_result.mp4';
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          window.URL.revokeObjectURL(url);
+                        } catch (error) {
+                          console.error('下载失败:', error);
+                          alert('下载失败，请重试');
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer"
+                    >
+                      <VideoIcon className="w-4 h-4" />
+                      下载标注视频
+                    </button>
+                  )}
+                </div>
                 
                 {analysisMode === 'class' ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-blue-50 rounded-lg p-4">
-                        <p className="text-sm text-gray-600">总帧数</p>
-                        <p className="text-2xl font-bold text-blue-600">{analysisResult.total_frames}</p>
-                      </div>
-                      <div className="bg-green-50 rounded-lg p-4">
-                        <p className="text-sm text-gray-600">分析时长</p>
-                        <p className="text-2xl font-bold text-green-600">{formatTime(analysisResult.duration_seconds)}</p>
+                  <div className="space-y-6">
+                    {/* 行为占比分析 - 横向并排 */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-3">行为占比分析</h3>
+                      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div className="text-center p-4 bg-blue-100 rounded-xl">
+                          <p className="text-3xl font-bold text-blue-700 mb-1">
+                            {(analysisResult.behavior_percentages?.listening_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">抬头听课占比</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-green-100 rounded-xl">
+                          <p className="text-3xl font-bold text-green-700 mb-1">
+                            {(analysisResult.behavior_percentages?.reading_writing_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">看书/记笔记占比</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-orange-100 rounded-xl">
+                          <p className="text-3xl font-bold text-orange-700 mb-1">
+                            {(analysisResult.behavior_percentages?.using_computer_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">看电脑占比</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-red-100 rounded-xl">
+                          <p className="text-3xl font-bold text-red-700 mb-1">
+                            {(analysisResult.behavior_percentages?.using_phone_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">看手机占比</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-gray-100 rounded-xl">
+                          <p className="text-3xl font-bold text-gray-700 mb-1">
+                            {(analysisResult.behavior_percentages?.neutral_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">中性/其他</p>
+                        </div>
                       </div>
                     </div>
-                    
-                    {outputVideoUrl && (
-                      <div className="mt-4">
-                        <button
-                          onClick={async () => {
-                            try {
-                              // 1. 获取视频文件
-                              const response = await fetch(outputVideoUrl);
-                              const blob = await response.blob();
-                              
-                              // 2. 创建临时URL
-                              const url = window.URL.createObjectURL(blob);
-                              
-                              // 3. 触发下载
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = 'behavior_analysis_result.mp4';
-                              document.body.appendChild(a);
-                              a.click();
-                              
-                              // 4. 清理资源
-                              document.body.removeChild(a);
-                              window.URL.revokeObjectURL(url);
-                            } catch (error) {
-                              console.error('下载失败:', error);
-                              alert('下载失败，请重试');
-                            }
-                          }}
-                          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors cursor-pointer"
-                        >
-                          <VideoIcon className="w-5 h-5" />
-                          下载标注视频
-                        </button>
+
+                    {/* 分析结论 */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-3">分析结论</h3>
+                      <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-500">
+                        <ul className="space-y-2">
+                          {analysisResult.conclusions && analysisResult.conclusions.length > 0 ? (
+                            analysisResult.conclusions.map((conclusion: string, index: number) => (
+                              <li key={index} className="text-gray-700 flex items-start gap-2">
+                                <span className="text-blue-500 mt-1">•</span>
+                                <span>{conclusion}</span>
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-gray-500">暂无结论</li>
+                          )}
+                        </ul>
                       </div>
-                    )}
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-6">
@@ -680,21 +722,21 @@ const Pose3VideoAnalyzer: React.FC = () => {
                           <p className="text-3xl font-bold text-green-700 mb-1">
                             {(analysisResult.behavior_percentages?.reading_writing_percentage || 0).toFixed(1)}%
                           </p>
-                          <p className="text-sm text-gray-700">记笔记时长</p>
+                          <p className="text-sm text-gray-700">看书/记笔记时长</p>
                         </div>
                         
                         <div className="text-center p-4 bg-orange-100 rounded-xl">
                           <p className="text-3xl font-bold text-orange-700 mb-1">
                             {(analysisResult.behavior_percentages?.using_computer_percentage || 0).toFixed(1)}%
                           </p>
-                          <p className="text-sm text-gray-700">使用电脑比例</p>
+                          <p className="text-sm text-gray-700">看电脑时长</p>
                         </div>
                         
                         <div className="text-center p-4 bg-red-100 rounded-xl">
                           <p className="text-3xl font-bold text-red-700 mb-1">
                             {(analysisResult.behavior_percentages?.using_phone_percentage || 0).toFixed(1)}%
                           </p>
-                          <p className="text-sm text-gray-700">玩手机时长</p>
+                          <p className="text-sm text-gray-700">看手机时长</p>
                         </div>
                         
                         <div className="text-center p-4 bg-gray-100 rounded-xl">

@@ -191,6 +191,45 @@ class VideoBehaviorAnalysisService:
             'output_video_path': str(output_path) if output_path else None
         }
         
+        # 计算各行为百分比
+        total_behaviors = sum(behavior_stats.values())
+        behavior_percentages = {}
+        if total_behaviors > 0:
+            for behavior, count in behavior_stats.items():
+                percentage = (count / total_behaviors) * 100
+                behavior_percentages[f'{behavior}_percentage'] = round(percentage, 2)
+        else:
+            for behavior in behavior_stats.keys():
+                behavior_percentages[f'{behavior}_percentage'] = 0.0
+        
+        result['behavior_percentages'] = behavior_percentages
+        
+        # 生成结论
+        conclusions = []
+        listening_pct = behavior_percentages.get('listening_percentage', 0)
+        
+        # 听讲比例分析
+        if listening_pct > 50:
+            conclusions.append(f"大部分学生注意力集中，积极关注教学内容")
+        else:
+            conclusions.append(f"较多学生注意力分散，可能存在走神现象")
+        
+        # 找出除中性外最高比例的行为
+        non_neutral_behaviors = {
+            'listening': ('听讲', behavior_percentages.get('listening_percentage', 0)),
+            'reading_writing': ('看书/记笔记', behavior_percentages.get('reading_writing_percentage', 0)),
+            'using_computer': ('使用电脑', behavior_percentages.get('using_computer_percentage', 0)),
+            'using_phone': ('使用手机', behavior_percentages.get('using_phone_percentage', 0))
+        }
+        
+        max_behavior = max(non_neutral_behaviors.items(), key=lambda x: x[1][1])
+        max_behavior_name = max_behavior[1][0]
+        max_behavior_pct = max_behavior[1][1]
+        
+        conclusions.append(f"课堂占比最多的行为是{max_behavior_name}，比例达{max_behavior_pct:.1f}%")
+        
+        result['conclusions'] = conclusions
+        
         logger.info(f"分析完成: {result}")
         return result
     

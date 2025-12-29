@@ -45,7 +45,8 @@ const Pose3VideoAnalyzer: React.FC = () => {
   const [outputVideoUrl, setOutputVideoUrl] = useState<string | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);  // 用于截取首帧
+  const drawingCanvasRef = useRef<HTMLCanvasElement>(null);  // 用于弹窗中的绘制
   
   // 处理视频上传
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,21 +109,43 @@ const Pose3VideoAnalyzer: React.FC = () => {
   
   // 获取首帧用于选择学生
   const captureFirstFrame = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    console.log('[captureFirstFrame] 开始执行');
+    if (!videoRef.current || !canvasRef.current) {
+      console.log('[captureFirstFrame] videoRef 或 canvasRef 不存在');
+      return;
+    }
     
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
-    if (!ctx) return;
+    if (!ctx) {
+      console.log('[captureFirstFrame] 无法获取 canvas context');
+      return;
+    }
     
-    // 跳转到起始时间
-    video.currentTime = currentTime;
+    // 如果视频已经在目标时间点，直接绘制；否则需要等待跳转
+    const needSeek = Math.abs(video.currentTime - currentTime) > 0.1;
     
-    // 等待视频跳转完成
-    await new Promise(resolve => {
-      video.onseeked = resolve;
-    });
+    if (needSeek) {
+      // 跳转到起始时间
+      video.currentTime = currentTime;
+      
+      // 等待视频跳转完成
+      await new Promise<void>(resolve => {
+        const onSeeked = () => {
+          video.removeEventListener('seeked', onSeeked);
+          resolve();
+        };
+        video.addEventListener('seeked', onSeeked);
+        
+        // 添加超时保护，避免永久等待
+        setTimeout(() => {
+          video.removeEventListener('seeked', onSeeked);
+          resolve();
+        }, 1000);
+      });
+    }
     
     // 绘制到canvas
     canvas.width = video.videoWidth;
@@ -131,8 +154,10 @@ const Pose3VideoAnalyzer: React.FC = () => {
     
     // 转换为base64
     const imageData = canvas.toDataURL('image/jpeg');
+    console.log('[captureFirstFrame] 截取首帧成功，图片大小:', imageData.length);
     setFirstFrameImage(imageData);
     setIsSelectingStudent(true);
+    console.log('[captureFirstFrame] 状态已设置: isSelectingStudent=true');
   };
   
   // 画布上点击选择学生
@@ -504,15 +529,11 @@ const Pose3VideoAnalyzer: React.FC = () => {
                   {analysisMode === 'individual' && (
                     <div>
                       <button
-                        onClick={async () => {
-                          // 重置所有选择状态，允许重新选择学生
-                          setSelectedStudentBbox(null);
-                          setBboxStart(null);
-                          setBboxEnd(null);
-                          setFirstFrameImage(null); // 重置首帧图像
-                          setIsSelectingStudent(false); // 确保选择状态重置
-                          // 等待状态更新完成
-                          await new Promise(resolve => setTimeout(resolve, 0));
+                        onClick={() => {
+                          console.log('[按钮点击] 选择目标学生');
+                          console.log('[按钮点击] 当前状态 - isSelectingStudent:', isSelectingStudent, 'firstFrameImage存在:', !!firstFrameImage);
+                          // 直接调用captureFirstFrame，不需要提前重置状态
+                          // captureFirstFrame内部会设置isSelectingStudent和firstFrameImage
                           captureFirstFrame();
                         }}
                         disabled={isSelectingStudent}
@@ -666,6 +687,7 @@ const Pose3VideoAnalyzer: React.FC = () => {
                   setIsSelectingStudent(false);
                   setBboxStart(null);
                   setBboxEnd(null);
+                  setFirstFrameImage(null); // 重置首帧图像，避免下次无法弹出
                 }
               }}>
                 <div className="bg-white rounded-xl p-6 max-w-4xl w-full">
@@ -685,17 +707,17 @@ const Pose3VideoAnalyzer: React.FC = () => {
                       style={{ display: 'block', maxHeight: '70vh', userSelect: 'none' }}
                       onLoad={(e) => {
                         const img = e.currentTarget;
-                        if (canvasRef.current) {
-                          canvasRef.current.width = img.naturalWidth;
-                          canvasRef.current.height = img.naturalHeight;
+                        if (drawingCanvasRef.current) {
+                          drawingCanvasRef.current.width = img.naturalWidth;
+                          drawingCanvasRef.current.height = img.naturalHeight;
                         }
                       }}
                     />
                     {/* Canvas 覆盖层 */}
                     <canvas
-                      ref={canvasRef}
+                      ref={drawingCanvasRef}
                       onMouseDown={(e) => {
-                        const canvas = canvasRef.current;
+                        const canvas = drawingCanvasRef.current;
                         if (!canvas) return;
                         const rect = canvas.getBoundingClientRect();
                         const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
@@ -705,8 +727,8 @@ const Pose3VideoAnalyzer: React.FC = () => {
                         setBboxEnd(null);
                       }}
                       onMouseMove={(e) => {
-                        if (!isDrawing || !bboxStart || !canvasRef.current) return;
-                        const canvas = canvasRef.current;
+                        if (!isDrawing || !bboxStart || !drawingCanvasRef.current) return;
+                        const canvas = drawingCanvasRef.current;
                         const rect = canvas.getBoundingClientRect();
                         const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
                         const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
@@ -724,9 +746,9 @@ const Pose3VideoAnalyzer: React.FC = () => {
                         }
                       }}
                       onMouseUp={(e) => {
-                        if (!isDrawing || !bboxStart || !canvasRef.current) return;
+                        if (!isDrawing || !bboxStart || !drawingCanvasRef.current) return;
                         setIsDrawing(false);
-                        const canvas = canvasRef.current;
+                        const canvas = drawingCanvasRef.current;
                         const rect = canvas.getBoundingClientRect();
                         const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
                         const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
@@ -777,12 +799,15 @@ const Pose3VideoAnalyzer: React.FC = () => {
                     )}
                     <button
                       onClick={() => {
+                        console.log('[取消按钮] 点击取消');
                         setIsSelectingStudent(false);
                         setBboxStart(null);
                         setBboxEnd(null);
-                        if (canvasRef.current) {
-                          const ctx = canvasRef.current.getContext('2d');
-                          if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                        setFirstFrameImage(null); // 重置首帧图像，避免下次无法弹出
+                        console.log('[取消按钮] 已重置所有状态');
+                        if (drawingCanvasRef.current) {
+                          const ctx = drawingCanvasRef.current.getContext('2d');
+                          if (ctx) ctx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
                         }
                       }}
                       className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"

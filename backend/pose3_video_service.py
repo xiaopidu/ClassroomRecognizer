@@ -325,6 +325,63 @@ class VideoBehaviorAnalysisService:
         
         result['behavior_minutes'] = behavior_minutes
         
+        # 计算各活动占比（百分比）
+        behavior_percentages = {}
+        if sampled_count > 0:
+            for behavior, count in behavior_stats.items():
+                percentage = (count / sampled_count) * 100
+                behavior_percentages[f'{behavior}_percentage'] = round(percentage, 2)
+        else:
+            for behavior in behavior_stats.keys():
+                behavior_percentages[f'{behavior}_percentage'] = 0.0
+        
+        result['behavior_percentages'] = behavior_percentages
+        
+        # 计算认真程度评分
+        listening_pct = behavior_percentages.get('listening_percentage', 0)
+        reading_writing_pct = behavior_percentages.get('reading_writing_percentage', 0)
+        using_computer_pct = behavior_percentages.get('using_computer_percentage', 0)
+        using_phone_pct = behavior_percentages.get('using_phone_percentage', 0)
+        neutral_pct = behavior_percentages.get('neutral_percentage', 0)
+        
+        score = (
+            listening_pct * 1.0 +
+            reading_writing_pct * 0.85 +
+            using_computer_pct * 0.5 +
+            using_phone_pct * (-1.0) +
+            neutral_pct * 0.6
+        )
+        # 限制在0-100之间
+        score = max(0, min(100, score))
+        result['attention_score'] = round(score, 2)
+        
+        # 生成结论
+        conclusions = []
+        
+        # 总体评价
+        if score >= 70:
+            conclusions.append(f"整体表现优秀，认真程度评分为{score:.1f}，学习态度积极")
+        elif score >= 50:
+            conclusions.append(f"整体表现良好，认真程度评分为{score:.1f}，有一定的学习专注度")
+        else:
+            conclusions.append(f"需要改进，认真程度评分为{score:.1f}，建议提高课堂参与度")
+        
+        # 听讲比例
+        if listening_pct > 60:
+            conclusions.append(f"课堂注意力集中，抬头听课占比{listening_pct:.1f}%，专注度高")
+        elif listening_pct < 30:
+            conclusions.append(f"抬头听课时间较少，占比{listening_pct:.1f}%，建议提高课堂专注度")
+        
+        # 记笔记比例
+        if reading_writing_pct > 30:
+            conclusions.append(f"学习主动性强，记笔记时间占比{reading_writing_pct:.1f}%")
+        
+        # 使用手机比例
+        if using_phone_pct > 15:
+            conclusions.append(f"使用手机时间较多，占比{using_phone_pct:.1f}%，建议减少手机使用")
+        
+        result['conclusions'] = conclusions
+        
         logger.info(f"\n" + "="*50)
         logger.info(f"分析完成！")
         logger.info(f"  总帧数: {max_frames}")

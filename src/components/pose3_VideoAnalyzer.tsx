@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, Play, Pause, AlertCircle, CheckCircle, 
-  Loader2, Video as VideoIcon, Users, User, Clock 
+  Loader2, Video as VideoIcon, Users, User, Clock
 } from 'lucide-react';
 import Slider from 'rc-slider';
 import 'rc-slider/assets/index.css';
@@ -655,45 +655,73 @@ const Pose3VideoAnalyzer: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-800">行为时长统计</h3>
-                    
+                  <div className="space-y-6">
+                    {/* 认真程度评分 - 顶部醒目显示 */}
+                    <div className="bg-gradient-to-r from-purple-200 to-indigo-300 rounded-xl p-6 shadow-lg">
+                      <div className="text-center">
+                        <p className="text-sm font-medium mb-2 text-purple-800">认真程度评分</p>
+                        <p className="text-6xl font-bold mb-2 text-purple-900">{(analysisResult.attention_score || 0).toFixed(1)}</p>
+                        <p className="text-sm text-purple-700">满分 100 分</p>
+                      </div>
+                    </div>
 
-                    
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                        <span className="text-gray-700 font-medium">👂 听讲</span>
-                        <span className="text-green-600 font-bold">
-                          {(analysisResult.behavior_minutes?.listening_minutes || 0).toFixed(2)} 分钟
-                        </span>
+                    {/* 各活动占比统计 - 横向并排 */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-3">行为占比分析</h3>
+                      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div className="text-center p-4 bg-blue-100 rounded-xl">
+                          <p className="text-3xl font-bold text-blue-700 mb-1">
+                            {(analysisResult.behavior_percentages?.listening_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">抬头听课时长</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-green-100 rounded-xl">
+                          <p className="text-3xl font-bold text-green-700 mb-1">
+                            {(analysisResult.behavior_percentages?.reading_writing_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">记笔记时长</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-orange-100 rounded-xl">
+                          <p className="text-3xl font-bold text-orange-700 mb-1">
+                            {(analysisResult.behavior_percentages?.using_computer_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">使用电脑比例</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-red-100 rounded-xl">
+                          <p className="text-3xl font-bold text-red-700 mb-1">
+                            {(analysisResult.behavior_percentages?.using_phone_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">玩手机时长</p>
+                        </div>
+                        
+                        <div className="text-center p-4 bg-gray-100 rounded-xl">
+                          <p className="text-3xl font-bold text-gray-700 mb-1">
+                            {(analysisResult.behavior_percentages?.neutral_percentage || 0).toFixed(1)}%
+                          </p>
+                          <p className="text-sm text-gray-700">中性/其他</p>
+                        </div>
                       </div>
-                      
-                      <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                        <span className="text-gray-700 font-medium">📖 看书/记笔记</span>
-                        <span className="text-blue-600 font-bold">
-                          {(analysisResult.behavior_minutes?.reading_writing_minutes || 0).toFixed(2)} 分钟
-                        </span>
-                      </div>
-                      
-                      <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
-                        <span className="text-gray-700 font-medium">💻 看电脑</span>
-                        <span className="text-yellow-600 font-bold">
-                          {(analysisResult.behavior_minutes?.using_computer_minutes || 0).toFixed(2)} 分钟
-                        </span>
-                      </div>
-                      
-                      <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
-                        <span className="text-gray-700 font-medium">📱 看手机</span>
-                        <span className="text-red-600 font-bold">
-                          {(analysisResult.behavior_minutes?.using_phone_minutes || 0).toFixed(2)} 分钟
-                        </span>
-                      </div>
-                      
-                      <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                        <span className="text-gray-700 font-medium">🧘 中性/其他</span>
-                        <span className="text-gray-600 font-bold">
-                          {(analysisResult.behavior_minutes?.neutral_minutes || 0).toFixed(2)} 分钟
-                        </span>
+                    </div>
+
+                    {/* 分析结论 */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-3">分析结论</h3>
+                      <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-500">
+                        <ul className="space-y-2">
+                          {analysisResult.conclusions && analysisResult.conclusions.length > 0 ? (
+                            analysisResult.conclusions.map((conclusion: string, index: number) => (
+                              <li key={index} className="text-gray-700 flex items-start gap-2">
+                                <span className="text-blue-500 mt-1">•</span>
+                                <span>{conclusion}</span>
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-gray-500">暂无结论</li>
+                          )}
+                        </ul>
                       </div>
                     </div>
                   </div>

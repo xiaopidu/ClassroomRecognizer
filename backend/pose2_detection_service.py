@@ -1043,8 +1043,13 @@ class PoseDetectionService:
         
         # 先绘制所有边界框（使用OpenCV，快速）
         for behavior in behaviors:
-            bbox = behavior['bbox']
-            behavior_type = behavior['behavior']
+            bbox = behavior.get('bbox')
+            behavior_type = behavior.get('behavior', 'unknown')
+            
+            # 检查bbox是否为None
+            if bbox is None:
+                continue  # 跳过没有边界框的行为
+            
             color_bgr = behavior_colors.get(behavior_type, (200, 200, 200))
             
             # 绘制边界框
@@ -1070,9 +1075,14 @@ class PoseDetectionService:
         
         # 绘制所有文字标签
         for behavior in behaviors:
-            bbox = behavior['bbox']
-            behavior_type = behavior['behavior']
-            confidence = behavior['confidence']
+            bbox = behavior.get('bbox')
+            behavior_type = behavior.get('behavior', 'unknown')
+            confidence = behavior.get('confidence', 0)
+            
+            # 检查bbox是否为None
+            if bbox is None:
+                continue  # 跳过没有边界框的行为
+            
             color_bgr = behavior_colors.get(behavior_type, (200, 200, 200))
             
             # 绘制行为标签

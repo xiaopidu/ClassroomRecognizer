@@ -178,19 +178,18 @@ const Pose3VideoAnalyzer: React.FC = () => {
     setOutputVideoUrl(null);
     
     // 开始轮询进度
-    if (analysisMode === 'class') {
-      progressIntervalRef.current = setInterval(async () => {
-        try {
-          const response = await fetch('http://localhost:5001/api/video-analysis-progress');
-          const data = await response.json();
-          if (data.current) {
-            setAnalysisProgress(data.current);
-          }
-        } catch (err) {
-          console.error('进度查询失败:', err);
+    // 全班分析和个人追踪都需要进度条
+    progressIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await fetch(`http://localhost:5001/api/video-analysis-progress?mode=${analysisMode}`);
+        const data = await response.json();
+        if (data.current !== undefined) {
+          setAnalysisProgress(data.current);
         }
-      }, 1000); // 每秒查询一次
-    }
+      } catch (err) {
+        console.error('进度查询失败:', err);
+      }
+    }, 1000); // 每秒查询一次
     
     try {
       const formData = new FormData();
@@ -305,7 +304,11 @@ const Pose3VideoAnalyzer: React.FC = () => {
                     type="radio"
                     name="mode"
                     checked={analysisMode === 'class'}
-                    onChange={() => setAnalysisMode('class')}
+                    onChange={() => {
+                      setAnalysisMode('class');
+                      setAnalysisResult(null); // 切换模式时清除之前的结果
+                      setOutputVideoUrl(null);
+                    }}
                     className="w-4 h-4 text-blue-600"
                   />
                   <div className="flex-1">
@@ -325,7 +328,13 @@ const Pose3VideoAnalyzer: React.FC = () => {
                     type="radio"
                     name="mode"
                     checked={analysisMode === 'individual'}
-                    onChange={() => setAnalysisMode('individual')}
+                    onChange={() => {
+                      setAnalysisMode('individual');
+                      setAnalysisResult(null); // 切换模式时清除之前的结果
+                      setOutputVideoUrl(null);
+                      setSelectedStudentBbox(null); // 同时清除之前选择的学生框
+                      setFirstFrameImage(null);
+                    }}
                     className="w-4 h-4 text-green-600"
                   />
                   <div className="flex-1">
@@ -495,7 +504,17 @@ const Pose3VideoAnalyzer: React.FC = () => {
                   {analysisMode === 'individual' && (
                     <div>
                       <button
-                        onClick={captureFirstFrame}
+                        onClick={async () => {
+                          // 重置所有选择状态，允许重新选择学生
+                          setSelectedStudentBbox(null);
+                          setBboxStart(null);
+                          setBboxEnd(null);
+                          setFirstFrameImage(null); // 重置首帧图像
+                          setIsSelectingStudent(false); // 确保选择状态重置
+                          // 等待状态更新完成
+                          await new Promise(resolve => setTimeout(resolve, 0));
+                          captureFirstFrame();
+                        }}
                         disabled={isSelectingStudent}
                         className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                       >
@@ -540,10 +559,10 @@ const Pose3VideoAnalyzer: React.FC = () => {
                   </button>
                   
                   {/* 进度条 */}
-                  {isAnalyzing && analysisMode === 'class' && (
+                  {isAnalyzing && (
                     <div className="mt-4">
                       <div className="flex justify-between text-sm text-gray-600 mb-2">
-                        <span>分析进度</span>
+                        <span>{analysisMode === 'class' ? '全班分析' : '个人追踪'}进度</span>
                         <span className="font-semibold text-purple-600">{analysisProgress}%</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
@@ -596,14 +615,7 @@ const Pose3VideoAnalyzer: React.FC = () => {
                   <div className="space-y-4">
                     <h3 className="text-lg font-semibold text-gray-800">行为时长统计</h3>
                     
-                    {/* 显示原始数据用于调试 */}
-                    <div className="bg-gray-100 p-3 rounded-lg text-xs">
-                      <p className="font-semibold mb-1">调试信息:</p>
-                      <p>behavior_minutes: {JSON.stringify(analysisResult.behavior_minutes)}</p>
-                      <p>behavior_stats: {JSON.stringify(analysisResult.behavior_stats)}</p>
-                      <p>sampled_frames: {analysisResult.sampled_frames}</p>
-                      <p>duration_seconds: {analysisResult.duration_seconds}</p>
-                    </div>
+
                     
                     <div className="space-y-3">
                       <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
@@ -648,7 +660,14 @@ const Pose3VideoAnalyzer: React.FC = () => {
 
             {/* 首帧选择学生画布 */}
             {isSelectingStudent && firstFrameImage && (
-              <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+              <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={(e) => {
+                // 点击背景时关闭弹窗
+                if (e.target === e.currentTarget) {
+                  setIsSelectingStudent(false);
+                  setBboxStart(null);
+                  setBboxEnd(null);
+                }
+              }}>
                 <div className="bg-white rounded-xl p-6 max-w-4xl w-full">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">请拖动框选目标学生</h3>
                   <p className="text-sm text-gray-600 mb-4">

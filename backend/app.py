@@ -86,9 +86,16 @@ registered_students = []
 
 # 全局变量存储视频分析进度
 video_analysis_progress = {
-    'current': 0,
-    'total': 100,
-    'status': 'idle'  # idle, processing, completed, error
+    'class': {
+        'current': 0,
+        'total': 100,
+        'status': 'idle'  # idle, processing, completed, error
+    },
+    'individual': {
+        'current': 0,
+        'total': 100,
+        'status': 'idle'  # idle, processing, completed, error
+    }
 }
 
 def initialize_insightface():
@@ -1136,7 +1143,7 @@ def video_behavior_analyze():
         looking_down_threshold = float(request.form.get('looking_down_threshold', -2))
         
         # 重置进度
-        video_analysis_progress = {
+        video_analysis_progress[mode] = {
             'current': 0,
             'total': 100,
             'status': 'processing'
@@ -1159,7 +1166,7 @@ def video_behavior_analyze():
         # 定义进度回调函数
         def update_progress(progress):
             global video_analysis_progress
-            video_analysis_progress['current'] = progress
+            video_analysis_progress[mode]['current'] = progress
             logger.info(f"进度更新: {progress}%")
         
         result = None
@@ -1191,7 +1198,8 @@ def video_behavior_analyze():
                 pose_conf_threshold=pose_conf_threshold,
                 object_conf_threshold=object_conf_threshold,
                 looking_up_threshold=looking_up_threshold,
-                looking_down_threshold=looking_down_threshold
+                looking_down_threshold=looking_down_threshold,
+                progress_callback=update_progress  # 传递进度回调
             )
         
         # 清理临时视频文件
@@ -1209,13 +1217,13 @@ def video_behavior_analyze():
             result['video_url'] = f'/api/download-video/{filename}'
         
         # 更新进度为完成
-        video_analysis_progress['status'] = 'completed'
-        video_analysis_progress['current'] = 100
+        video_analysis_progress[mode]['status'] = 'completed'
+        video_analysis_progress[mode]['current'] = 100
         
         logger.info(f"视频分析完成: {result}")
         return jsonify({
             'success': True,
-            'result': result.get('behavior_stats') if mode == 'individual' else result,
+            'result': result,
             'video_url': result.get('video_url') if mode == 'class' else None
         })
         
@@ -1243,7 +1251,11 @@ def download_video(filename):
 def get_video_analysis_progress():
     """获取视频分析进度"""
     global video_analysis_progress
-    return jsonify(video_analysis_progress)
+    mode = request.args.get('mode', 'class')  # 默认为class模式
+    if mode in video_analysis_progress:
+        return jsonify(video_analysis_progress[mode])
+    else:
+        return jsonify(video_analysis_progress['class'])  # 默认返回class进度
 
 
 if __name__ == '__main__':

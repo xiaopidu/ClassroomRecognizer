@@ -198,7 +198,8 @@ class VideoBehaviorAnalysisService:
         pose_conf_threshold: float = 0.15,
         object_conf_threshold: float = 0.25,
         looking_up_threshold: float = 0,
-        looking_down_threshold: float = -2
+        looking_down_threshold: float = -2,
+        progress_callback=None  # 添加进度回调
     ) -> Dict[str, Any]:
         """
         个人45分钟行为追踪
@@ -258,22 +259,28 @@ class VideoBehaviorAnalysisService:
                 if not ret:
                     logger.warning(f"视频读取结束，已处理 {frame_count} 帧")
                     break
-                
-                # 每2000帧处理一次（快速测试）
-                if frame_count % 2000 == 0:
+                        
+                # 更新进度回调 - 每处理一定数量的帧就更新一次进度
+                if frame_count % max(1, max_frames // 100) == 0:  # 每1%更新一次进度
+                    if progress_callback:
+                        current_progress = min(99, int((frame_count / max_frames) * 100))  # 最大99%，避免显示完成
+                        progress_callback(current_progress)
+                        
+                # 每10000帧处理一次，用于快速测试
+                if frame_count % 10000 == 0:
                     sampled_count += 1  # 记录采样次数
                     logger.info(f"\n========== 处理第 {frame_count} 帧 （第{sampled_count}次采样） ===========")
                     logger.info(f"目标区域: ({target_x}, {target_y}) 大小: {target_w}x{target_h}")
-                                    
+                            
                     # 裁剪目标区域（只检测目标学生）
                     crop_x1 = max(0, target_x)
                     crop_y1 = max(0, target_y)
                     crop_x2 = min(frame.shape[1], target_x + target_w)
                     crop_y2 = min(frame.shape[0], target_y + target_h)
-                                    
+                            
                     cropped_frame = frame[crop_y1:crop_y2, crop_x1:crop_x2]
                     logger.info(f"裁剪区域: ({crop_x1}, {crop_y1}) -> ({crop_x2}, {crop_y2})，大小: {cropped_frame.shape}")
-                                    
+                            
                     # 执行行为检测（只检测裁剪后的区域）
                     result = self.pose_service.analyze_behavior_frame(
                         cropped_frame,
@@ -284,9 +291,9 @@ class VideoBehaviorAnalysisService:
                         looking_up_threshold=looking_up_threshold,
                         looking_down_threshold=looking_down_threshold
                     )
-                                    
+                            
                     logger.info(f"检测结果: success={result.get('success')}, 检测到 {len(result.get('behaviors', []))} 个人")
-                                    
+                            
                     # 直接使用检测结果（因为已经裁剪到目标区域）
                     if result['success'] and result.get('behaviors'):
                         # 取第一个检测到的人（应该就是目标学生）
@@ -300,9 +307,9 @@ class VideoBehaviorAnalysisService:
                             logger.warning(f"❌ 裁剪区域内未检测到学生")
                     else:
                         logger.warning(f"❌ 未检测到任何人")
-                
+                        
                 frame_count += 1
-                
+                        
                 # 每1000帧打印一次进度
                 if frame_count % 1000 == 0:
                     logger.info(f"已处理 {frame_count}/{max_frames} 帧")

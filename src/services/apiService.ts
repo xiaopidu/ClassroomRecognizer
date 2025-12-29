@@ -503,6 +503,9 @@ export interface IndividualBehaviorResult {
   summary: {
     behavior_stats: Record<string, number>;
     behavior_percentages: Record<string, number>;
+    head_percentages?: Record<string, number>; // 头部姿态分布
+    hand_percentages?: Record<string, number>; // 手部活动分布
+    object_percentages?: Record<string, number>; // 物体检测结果分布
     attention_score: number;
     recognition_accuracy: number;
     total_frames_analyzed: number;

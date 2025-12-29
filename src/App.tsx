@@ -4,7 +4,9 @@ import VideoAnalyzer from './components/VideoAnalyzer';
 import StudentRegistry from './components/StudentRegistry';
 import ImageAnalyzer from './components/ImageAnalyzer';
 import ParameterControls from './components/ParameterControls';
-import { Users, ScanFace, Activity, Image as ImageIcon, AlertTriangle } from 'lucide-react';
+import Pose2Analyzer from './components/pose2_PoseAnalyzer';
+import Pose3VideoAnalyzer from './components/pose3_VideoAnalyzer';
+import { Users, ScanFace, Activity, Image as ImageIcon, AlertTriangle, TestTube, Video } from 'lucide-react';
 import { loadStudentsFromStorage, saveStudentsToStorage, loadParamsFromStorage, saveParamsToStorage } from './services/storageService';
 import { getCurrentParams, updateRegisteredStudents } from './services/apiService';
 console.log('App.tsx: Starting execution');
@@ -159,6 +161,26 @@ function App() {
               <Activity className="w-4 h-4" /> 行为分析
             </button>
             <button
+              onClick={() => setActiveTab(AppTab.POSE_TEST)}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                activeTab === AppTab.POSE_TEST 
+                  ? 'bg-blue-600 text-white shadow-lg' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <TestTube className="w-4 h-4" /> 行为分析（标定）
+            </button>
+            <button
+              onClick={() => setActiveTab(AppTab.POSE_VIDEO)}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                activeTab === AppTab.POSE_VIDEO 
+                  ? 'bg-blue-600 text-white shadow-lg' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <Video className="w-4 h-4" /> 行为分析（视频）
+            </button>
+            <button
               onClick={() => setActiveTab(AppTab.IMAGE_RECOGNITION)}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
                 activeTab === AppTab.IMAGE_RECOGNITION 
@@ -211,6 +233,12 @@ function App() {
                  params={recognitionParams} 
                  onSnapshotTaken={handleVideoSnapshot}
                />
+            )}
+            {activeTab === AppTab.POSE_TEST && (
+               <Pose2Analyzer />
+            )}
+            {activeTab === AppTab.POSE_VIDEO && (
+               <Pose3VideoAnalyzer />
             )}
             {activeTab === AppTab.IMAGE_RECOGNITION && (
                <ImageAnalyzer 

@@ -3,6 +3,9 @@ from flask_cors import CORS
 import cv2
 import numpy as np
 import os
+import glob
+import tempfile
+import time
 from insightface.app import FaceAnalysis
 import base64
 from io import BytesIO
@@ -12,6 +15,10 @@ import json
 
 # 导入行为识别服务
 from behavior_service import get_behavior_analyzer
+# 导入新的姿态检测服务（测试版）
+from pose2_detection_service import get_pose_detection_service
+# 导入视频行为分析服务
+from pose3_video_service import get_video_analysis_service
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +31,38 @@ CORS(app)  # 允许跨域请求
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+# 清理函数：删除超过1小时的临时文件
+def cleanup_old_temp_files():
+    """Clean up old temporary files"""
+    try:
+        current_time = time.time()
+        temp_dir = tempfile.gettempdir()
+        
+        # 清理系统临时目录中的旧视频文件
+        for video_file in glob.glob(os.path.join(temp_dir, 'uploaded_video_*.mp4')):
+            try:
+                file_age = current_time - os.path.getmtime(video_file)
+                if file_age > 3600:  # 1小时
+                    os.remove(video_file)
+                    logger.info(f"已删除旧临时文件: {video_file}")
+            except Exception as e:
+                logger.warning(f"删除临时文件失败: {video_file}, {e}")
+        
+        # 清理 output_videos 目录
+        output_dir = os.path.join(os.path.dirname(__file__), 'output_videos')
+        if os.path.exists(output_dir):
+            for video_file in glob.glob(os.path.join(output_dir, '*.mp4')):
+                try:
+                    file_age = current_time - os.path.getmtime(video_file)
+                    if file_age > 3600:  # 1小时
+                        os.remove(video_file)
+                        logger.info(f"已删除旧输出文件: {video_file}")
+                except Exception as e:
+                    logger.warning(f"删除输出文件失败: {video_file}, {e}")
+                    
+    except Exception as e:
+        logger.error(f"清理临时文件失败: {e}")
 
 # 全局变量存储模型和参数
 face_app = None
@@ -44,6 +83,14 @@ behavior_params = {
 
 # 存储学生数据用于人脸识别
 registered_students = []
+
+# 全局变量存储视频分析进度
+video_analysis_progress = {
+    'current': 0,
+    'total': 100,
+    'status': 'idle'  # idle, processing, completed, error
+}
+
 def initialize_insightface():
     """初始化 InsightFace 模型"""
     global face_app
@@ -938,6 +985,266 @@ def analyze_behavior_with_bbox():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"边界框追踪分析出错: {str(e)}"}), 500
+
+@app.route('/api/pose-detect-test', methods=['POST'])
+def pose_detect_test():
+    """姿态检测测试接口 - 独立的新功能"""
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({"error": "缺少图像数据"}), 400
+        
+        image_base64 = data['image']
+        conf_threshold = data.get('conf_threshold', 0.5)
+        draw_skeleton = data.get('draw_skeleton', True)
+        draw_bbox = data.get('draw_bbox', True)
+        looking_up_threshold = data.get('looking_up_threshold', -2)
+        looking_down_threshold = data.get('looking_down_threshold', 0)
+        
+        logger.info(f"姿态检测测试: 置信度={conf_threshold}, 绘制骨架={draw_skeleton}, 绘制边框={draw_bbox}, 抬头阈值={looking_up_threshold}, 低头阈值={looking_down_threshold}")
+        
+        # 获取姿态检测服务
+        pose_service = get_pose_detection_service()
+        
+        # 分析图像
+        result = pose_service.analyze_image_base64(
+            image_base64,
+            conf_threshold=conf_threshold,
+            draw_skeleton=draw_skeleton,
+            draw_bbox=draw_bbox,
+            looking_up_threshold=looking_up_threshold,
+            looking_down_threshold=looking_down_threshold
+        )
+        
+        if result['success']:
+            logger.info(f"检测到 {result['detection_result']['person_count']} 个人")
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        logger.error(f"姿态检测测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"姿态检测失败: {str(e)}"}), 500
+
+
+@app.route('/api/object-detect-test', methods=['POST'])
+def object_detect_test():
+    """物体检测测试接口"""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({"error": "缺少图像数据"}), 400
+        
+        image_base64 = data['image']
+        conf_threshold = data.get('conf_threshold', 0.3)
+        
+        logger.info(f"物体检测测试: 置信度={conf_threshold}")
+        
+        # 获取姿态检测服务（包含物体检测）
+        pose_service = get_pose_detection_service()
+        
+        # 分析图像
+        result = pose_service.analyze_objects_base64(
+            image_base64,
+            conf_threshold=conf_threshold
+        )
+        
+        if result['success']:
+            logger.info(f"检测到 {result['detection_result']['object_count']} 个物体")
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+    except Exception as e:
+        logger.error(f"物体检测测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"物体检测失败: {str(e)}"}), 500
+
+
+@app.route('/api/behavior-analyze-test', methods=['POST'])
+def behavior_analyze_test():
+    """行为检测测试接口"""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({"error": "缺少图像数据"}), 400
+        
+        image_base64 = data['image']
+        pose_conf_threshold = data.get('pose_conf_threshold', 0.15)
+        object_conf_threshold = data.get('object_conf_threshold', 0.25)
+        draw_skeleton = data.get('draw_skeleton', True)
+        draw_bbox = data.get('draw_bbox', True)
+        looking_up_threshold = data.get('looking_up_threshold', -2)
+        looking_down_threshold = data.get('looking_down_threshold', 0)
+        
+        logger.info(f"行为检测测试: 姿态置信度={pose_conf_threshold}, 物体置信度={object_conf_threshold}")
+        
+        # 获取姿态检测服务（包含行为分析）
+        pose_service = get_pose_detection_service()
+        
+        # 分析行为
+        result = pose_service.analyze_behavior_base64(
+            image_base64,
+            pose_conf_threshold=pose_conf_threshold,
+            object_conf_threshold=object_conf_threshold,
+            draw_skeleton=draw_skeleton,
+            draw_bbox=draw_bbox,
+            looking_up_threshold=looking_up_threshold,
+            looking_down_threshold=looking_down_threshold
+        )
+        
+        if result['success']:
+            logger.info(f"检测到 {result['detection_result']['person_count']} 个人，行为统计: {result['detection_result']['behavior_stats']}")
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+    except Exception as e:
+        logger.error(f"行为检测测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"行为检测失败: {str(e)}"}), 500
+
+
+@app.route('/api/video-behavior-analyze', methods=['POST'])
+def video_behavior_analyze():
+    """视频行为分析接口"""
+    global video_analysis_progress
+    
+    try:
+        # 先清理旧文件
+        logger.info("清理旧临时文件...")
+        cleanup_old_temp_files()
+        
+        # 检查是否有视频文件
+        if 'video' not in request.files:
+            return jsonify({"error": "未找到视频文件"}), 400
+        
+        video_file = request.files['video']
+        if video_file.filename == '':
+            return jsonify({"error": "视频文件名为空"}), 400
+        
+        # 获取参数
+        start_time = float(request.form.get('start_time', 0))
+        duration = float(request.form.get('duration', 300))
+        mode = request.form.get('mode', 'class')  # 'class' 或 'individual'
+        pose_conf_threshold = float(request.form.get('pose_conf_threshold', 0.15))
+        object_conf_threshold = float(request.form.get('object_conf_threshold', 0.25))
+        looking_up_threshold = float(request.form.get('looking_up_threshold', 0))
+        looking_down_threshold = float(request.form.get('looking_down_threshold', -2))
+        
+        # 重置进度
+        video_analysis_progress = {
+            'current': 0,
+            'total': 100,
+            'status': 'processing'
+        }
+        
+        # 保存视频文件
+        import tempfile
+        import time as time_module
+        temp_dir = tempfile.gettempdir()
+        timestamp = int(time_module.time())
+        video_path = os.path.join(temp_dir, f'uploaded_video_{timestamp}.mp4')
+        video_file.save(video_path)
+        
+        logger.info(f"视频保存到: {video_path}")
+        logger.info(f"分析模式: {mode}, 起始时间: {start_time}s, 时长: {duration}s")
+        
+        # 获取视频分析服务
+        video_service = get_video_analysis_service()
+        
+        # 定义进度回调函数
+        def update_progress(progress):
+            global video_analysis_progress
+            video_analysis_progress['current'] = progress
+            logger.info(f"进度更新: {progress}%")
+        
+        result = None
+        if mode == 'class':
+            # 全班5分钟分析
+            result = video_service.analyze_video_class(
+                video_path=video_path,
+                start_time=start_time,
+                duration=duration,
+                pose_conf_threshold=pose_conf_threshold,
+                object_conf_threshold=object_conf_threshold,
+                looking_up_threshold=looking_up_threshold,
+                looking_down_threshold=looking_down_threshold,
+                output_video=True,
+                progress_callback=update_progress
+            )
+        else:
+            # 个人45分钟追踪
+            target_bbox_str = request.form.get('target_bbox')
+            if not target_bbox_str:
+                return jsonify({"error": "个人分析需要指定目标学生边界框"}), 400
+            
+            target_bbox = json.loads(target_bbox_str)
+            result = video_service.analyze_video_individual(
+                video_path=video_path,
+                start_time=start_time,
+                target_bbox=target_bbox,
+                duration=duration,
+                pose_conf_threshold=pose_conf_threshold,
+                object_conf_threshold=object_conf_threshold,
+                looking_up_threshold=looking_up_threshold,
+                looking_down_threshold=looking_down_threshold
+            )
+        
+        # 清理临时视频文件
+        try:
+            os.remove(video_path)
+            logger.info(f"已删除临时视频: {video_path}")
+        except:
+            pass
+        
+        # 处理输出视频URL
+        if result and result.get('output_video_path'):
+            # 转换为相对路径
+            output_path = result['output_video_path']
+            filename = os.path.basename(output_path)
+            result['video_url'] = f'/api/download-video/{filename}'
+        
+        # 更新进度为完成
+        video_analysis_progress['status'] = 'completed'
+        video_analysis_progress['current'] = 100
+        
+        logger.info(f"视频分析完成: {result}")
+        return jsonify({
+            'success': True,
+            'result': result.get('behavior_stats') if mode == 'individual' else result,
+            'video_url': result.get('video_url') if mode == 'class' else None
+        })
+        
+    except Exception as e:
+        video_analysis_progress['status'] = 'error'
+        logger.error(f"视频行为分析失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"视频分析失败: {str(e)}"}), 500
+
+
+@app.route('/api/download-video/<filename>', methods=['GET'])
+def download_video(filename):
+    """下载输出视频"""
+    try:
+        video_service = get_video_analysis_service()
+        output_dir = video_service.output_dir
+        return send_from_directory(output_dir, filename, as_attachment=True)
+    except Exception as e:
+        logger.error(f"下载视频失败: {e}")
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route('/api/video-analysis-progress', methods=['GET'])
+def get_video_analysis_progress():
+    """获取视频分析进度"""
+    global video_analysis_progress
+    return jsonify(video_analysis_progress)
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)

@@ -14,7 +14,7 @@ console.log('App.tsx: Starting execution');
 function App() {
   console.log('App.tsx: App component rendering');
   
-  const [activeTab, setActiveTab] = useState<AppTab>(AppTab.ANALYZE);
+  const [activeTab, setActiveTab] = useState<AppTab>(AppTab.POSE_TEST);
   const [students, setStudents] = useState<Student[]>(() => {
     // Load students from localStorage on initial render
     return loadStudentsFromStorage();

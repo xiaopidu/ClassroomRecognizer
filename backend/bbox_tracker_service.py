@@ -557,13 +557,25 @@ class BBoxTrackerAnalyzer:
         draw = ImageDraw.Draw(pil_img)
         
         # 加载中文字体
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", 20)
-        except:
+        font = None
+        font_paths = [
+            # Windows 字体
+            "C:/Windows/Fonts/msyh.ttc",  # 微软雅黑
+            "C:/Windows/Fonts/simhei.ttf",  # 黑体
+            "C:/Windows/Fonts/simsun.ttc",  # 宋体
+            # macOS 字体
+            "/System/Library/Fonts/PingFang.ttc",
+            # Linux 字体
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+        ]
+        
+        for font_path in font_paths:
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 20)
+                font = ImageFont.truetype(font_path, 20)
+                break
             except:
-                font = ImageFont.load_default()
+                continue
         
         # 构建标签文本
         head_label = self.behavior_labels.get(head_pose, head_pose)
@@ -572,13 +584,36 @@ class BBoxTrackerAnalyzer:
         
         label = f'{student_name}: {head_label}/{hand_label}'
         
-        # 绘制文字背景
-        text_position = (bbox['x1'], max(0, bbox['y1'] - 30))
-        bbox_text = draw.textbbox(text_position, label, font=font)
-        draw.rectangle(bbox_text, fill=(0, 0, 0, 180))
+        # 如果所有字体都加载失败，使用 OpenCV 绘制英文
+        if font is None:
+            logger.warning("无法加载中文字体，使用 OpenCV 绘制英文")
+            # 转回 OpenCV 格式
+            frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            # 使用 OpenCV 直接绘制英文
+            cv2.rectangle(frame, (bbox['x1'], bbox['y1']-30), 
+                        (bbox['x1']+200, bbox['y1']), (0, 0, 0), -1)
+            cv2.putText(frame, f"{student_name}: {head_pose}/{hand_activity}",
+                      (bbox['x1'], bbox['y1']-8), cv2.FONT_HERSHEY_SIMPLEX, 
+                      0.5, color, 1)
+            return frame
         
-        # 绘制文字
-        draw.text(text_position, label, fill=color, font=font)
+        # 绘制文字背景和文字
+        text_position = (bbox['x1'], max(0, bbox['y1'] - 30))
+        try:
+            bbox_text = draw.textbbox(text_position, label, font=font)
+            draw.rectangle(bbox_text, fill=(0, 0, 0, 180))
+            draw.text(text_position, label, fill=color, font=font)
+        except Exception as e:
+            logger.warning(f"绘制中文失败: {e}，使用OpenCV绘制")
+            # 转回 OpenCV 格式
+            frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            # 备选方案: 使用 OpenCV
+            cv2.rectangle(frame, (bbox['x1'], bbox['y1']-30), 
+                        (bbox['x1']+200, bbox['y1']), (0, 0, 0), -1)
+            cv2.putText(frame, f"{student_name}: {head_pose}/{hand_activity}",
+                      (bbox['x1'], bbox['y1']-8), cv2.FONT_HERSHEY_SIMPLEX, 
+                      0.5, color, 1)
+            return frame
         
         # 转回OpenCV格式
         return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
